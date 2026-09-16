@@ -53,8 +53,28 @@ Output: `dashboard.html` (open in any browser) and state in
 3. On mobile: open the repo in the GitHub app → **Actions** → tap a run
    for logs; open `dashboard.html` for stats; use **Run workflow** for a
    manual run.
-4. To pause the agent: disable the workflow (or set repo variable /
-   secret `KILL_SWITCH`). To reset: delete `data/` and re-run `--init`.
+4. To pause the agent: set repository variable `KILL_SWITCH` to `true`
+   (Settings → Secrets and variables → Actions → **Variables** tab) -
+   no workflow edit needed. To fully stop, disable the workflow. To
+   reset: delete `data/trading.db` and re-run `--init`.
+
+### How state survives between runs
+
+- `data/trading.db` is **committed on purpose** - it is the wallet/
+  positions/trades history. Each Actions run checks it out, runs one
+  cycle, then commits it back.
+- Every cycle ends with a SQLite `wal_checkpoint(TRUNCATE)` so the `.db`
+  file alone carries the full state (the `-wal`/`-shm` sidecars are
+  gitignored and never needed).
+- High-churn tables (`snapshots`, `scans`, `equity_curve`,
+  `ai_decisions`) are pruned every cycle so the committed file stays
+  small; trades/orders/positions are never pruned.
+- If GitHub delays a scheduled run (happens under load), nothing is lost -
+  the next run simply continues from the committed state.
+- Note: on public repositories GitHub auto-disables schedules after 60
+  days with no repo activity. The bot's own commits normally prevent
+  this; if the schedule ever stops, push any commit or re-enable via the
+  Actions tab.
 
 No API keys are required for the default setup — the built-in
 **heuristic analyzer** is free and offline. To plug in an LLM (any
@@ -88,7 +108,8 @@ All settings live in `config.py` with env-var overrides (see
 - No wallet connection, no private keys, no seed phrases — providing them
   in env is rejected.
 - All keys come from environment variables / repo secrets, never code.
-- `KILL_SWITCH=true` halts trading; daily-loss and drawdown stops are
+- `KILL_SWITCH=true` (repo variable) halts new trades while still
+  allowing held positions to settle; daily-loss and drawdown stops are
   enforced even without it.
 - Fail-safe: an API outage skips the cycle and keeps prior state intact.
 
@@ -106,9 +127,13 @@ execution/   paper trading engine (100% simulated)
 models/      dataclasses: MarketSnapshot, Signal, PaperOrder, ...
 risk/        Kelly sizing + hard risk limits
 strategy/   filtering, features, edge evaluation
-tests/       pytest suite (48 tests)
+tests/       pytest suite (53 tests, incl. cross-run integration)
 .github/     Actions: scheduled runs + CI
 ```
+
+Market resolution is detected by polling each held market by id
+(resolved markets disappear from the active feed; the Gamma API reports
+them with `umaResolutionStatus: "resolved"` and prices pinned to 1/0).
 
 ## Modes
 
