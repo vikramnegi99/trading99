@@ -1,5 +1,4 @@
 name: Tests
-
 on:
   push:
     branches: [main]
@@ -8,6 +7,10 @@ on:
 
 jobs:
   test:
+    # bot state commits (every ~10 min) don't need a test run - only
+    # human pushes and PRs do. They DO need to trigger a Pages rebuild,
+    # which is why the bot commits no longer carry [skip ci].
+    if: github.actor != 'paper-trading-bot'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

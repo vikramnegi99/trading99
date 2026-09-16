@@ -102,26 +102,26 @@ footer{color:var(--muted);font-size:.72rem;text-align:center;margin-top:10px}
 Updated {updated}</div>
 <div class="grid">
 <div class="card"><div class="k">Starting balance</div>
-<div class="v">${starting:.2f}</div></div>
+<div class="v">${starting}</div></div>
 <div class="card"><div class="k">Current balance</div>
-<div class="v">${balance:.2f}</div></div>
+<div class="v">${balance}</div></div>
 <div class="card"><div class="k">Total P&L</div>
-<div class="v {pnl_cls}">{pnl_sign}${pnl:.2f}</div></div>
+<div class="v {pnl_cls}">{pnl_sign}${pnl}</div></div>
 <div class="card"><div class="k">Return</div>
-<div class="v {pnl_cls}">{pnl_sign}{ret:.2f}%</div></div>
+<div class="v {pnl_cls}">{pnl_sign}{ret}%</div></div>
 <div class="card"><div class="k">Trades</div><div class="v">{trades}</div></div>
 <div class="card"><div class="k">Win rate</div>
-<div class="v">{wr:.1f}%</div></div>
+<div class="v">{wr}%</div></div>
 <div class="card"><div class="k">Avg trade P&L</div>
-<div class="v">${avg:.3f}</div></div>
+<div class="v">${avg}</div></div>
 <div class="card"><div class="k">Largest win</div>
-<div class="v pos">${lw:.2f}</div></div>
+<div class="v pos">${lw}</div></div>
 <div class="card"><div class="k">Largest loss</div>
-<div class="v neg">${ll:.2f}</div></div>
+<div class="v neg">${ll}</div></div>
 <div class="card"><div class="k">Max drawdown</div>
-<div class="v">{mdd:.2f}%</div></div>
+<div class="v">{mdd}%</div></div>
 <div class="card"><div class="k">Unrealized</div>
-<div class="v {unr_cls}">{unr_sign}${unr:.2f}</div></div>
+<div class="v {unr_cls}">{unr_sign}${unr}</div></div>
 <div class="card"><div class="k">Profit factor</div>
 <div class="v">{pf}</div></div>
 </div>

@@ -61,7 +61,11 @@ jobs:
 
       - name: Regenerate dashboard
         if: always()
-        run: python main.py --dashboard
+        run: |
+          python main.py --dashboard
+          # GitHub Pages serves index.html at the site root - keep it in
+          # sync with the dashboard on every cycle.
+          cp dashboard.html index.html
 
       - name: Commit state and dashboard
         if: always()
@@ -70,10 +74,13 @@ jobs:
           git config user.email "actions@github.com"
           # data/trading.db is the persistent state: the cycle ends with a WAL
           # checkpoint, so the .db file alone carries the full state.
-          git add data/trading.db dashboard.html || true
+          # index.html is the GitHub Pages entry point (same as dashboard.html).
+          # No [skip ci]: Pages must rebuild when new state is pushed; the
+          # Tests workflow skips bot pushes via its own actor guard.
+          git add data/trading.db dashboard.html index.html || true
           if git diff --staged --quiet; then
             echo "No state changes to commit."
           else
-            git commit -m "paper-trading state update [skip ci]"
+            git commit -m "paper-trading state update"
             git push
           fi
