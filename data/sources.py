@@ -30,6 +30,10 @@ class MarketSource(ABC):
         """
         return None
 
+    def fetch_price_history(self, market: MarketSnapshot) -> Optional[List[float]]:
+        """Recent YES prices for a market. Default: unsupported."""
+        return None
+
     @abstractmethod
     def name(self) -> str:
         ...
@@ -42,6 +46,7 @@ class PolymarketSource(MarketSource):
     Docs: https://gamma-api.polymarket.com/markets
     """
     BASE = "https://gamma-api.polymarket.com"
+    CLOB = "https://clob.polymarket.com"
 
     def __init__(self, cache_ttl: int = 300):
         self.http = HttpClient(timeout=15, retries=3, rate_limit=0.3,
@@ -85,6 +90,7 @@ class PolymarketSource(MarketSource):
             spread = float(m.get("spread") or 0.0)
         except (TypeError, ValueError):
             pass
+        tokens = self._parse_json_field(m.get("clobTokenIds"))
         return MarketSnapshot(
             market_id=str(m.get("id", "")),
             question=str(m.get("question", ""))[:500],
@@ -100,6 +106,7 @@ class PolymarketSource(MarketSource):
             created_at=self._ts(m.get("createdAt")),
             end_date=self._ts(m.get("endDate")),
             url=str(m.get("slug", "")).join(("https://polymarket.com/market/", "")) if m.get("slug") else "",
+            clob_token_id=str(tokens[0]) if tokens else None,
             price_history=history,
         )
 
@@ -138,6 +145,34 @@ class PolymarketSource(MarketSource):
         if not isinstance(data, dict) or not data.get("id"):
             return None
         return self._to_snapshot(data)
+
+    def fetch_price_history(self, market: MarketSnapshot,
+                            interval: str = "1w",
+                            fidelity: int = 60) -> Optional[List[float]]:
+        """Recent YES prices from the CLOB API.
+
+        The Gamma list endpoint does NOT include priceHistory, so the
+        heuristic analyzer would have nothing to work with. Prices are
+        fetched per shortlisted candidate only (rate-limited, cached).
+        """
+        if not market.clob_token_id:
+            return None
+        data = self.http.get(
+            f"{self.CLOB}/prices-history",
+            params={"market": market.clob_token_id,
+                    "interval": interval, "fidelity": fidelity})
+        hist = data.get("history") if isinstance(data, dict) else None
+        if not hist:
+            return None
+        out = []
+        for pt in hist:
+            try:
+                p = float(pt.get("p"))
+                if 0 < p < 1:
+                    out.append(p)
+            except (TypeError, ValueError):
+                continue
+        return out or None
 
     def fetch_markets(self, limit: int = 500) -> List[MarketSnapshot]:
         """Paginated fetch of open markets."""

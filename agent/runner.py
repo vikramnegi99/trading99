@@ -109,6 +109,16 @@ class Agent:
             if last is not None and now - last < self.dedup_cooldown:
                 continue
             self.guard.mark(m.market_id, now)
+            # Live list feeds do not include price history; enrich the
+            # shortlisted candidate before analysis (fail-safe on errors).
+            if len(m.price_history or []) < 10:
+                try:
+                    hist = self.source.fetch_price_history(m)
+                    if hist:
+                        m.price_history = hist
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("price history fetch failed for %s: %s",
+                                 m.market_id, exc)
             sig = self.analyzer.analyze(m, extract_features(m))
             if sig is None:
                 continue
