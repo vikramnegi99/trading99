@@ -9,7 +9,7 @@ import math
 import random
 import time
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
 
 from models.entities import MarketSnapshot
 from utils.http import HttpClient, TTLCache
@@ -21,6 +21,14 @@ class MarketSource(ABC):
     @abstractmethod
     def fetch_markets(self, limit: int = 500) -> List[MarketSnapshot]:
         ...
+
+    def fetch_market_by_id(self, market_id: str) -> Optional[MarketSnapshot]:
+        """Fetch a single market by id (open OR resolved).
+
+        Default: unsupported. Sources that can do it override this - it is
+        how the agent polls resolution status of held positions.
+        """
+        return None
 
     @abstractmethod
     def name(self) -> str:
@@ -87,7 +95,7 @@ class PolymarketSource(MarketSource):
             spread=spread,
             best_bid=float(best_bid) if best_bid is not None else None,
             best_ask=float(best_ask) if best_ask is not None else None,
-            status="resolved" if (m.get("umaResolved") or m.get("resolved")) else "open",
+            status=self._status(m),
             resolution_outcome=m.get("resolvedOutcome") or None,
             created_at=self._ts(m.get("createdAt")),
             end_date=self._ts(m.get("endDate")),
@@ -105,6 +113,31 @@ class PolymarketSource(MarketSource):
                 .astimezone(timezone.utc).timestamp()
         except Exception:  # noqa: BLE001
             return None
+
+    @staticmethod
+    def _status(m: dict) -> str:
+        """Resolved markets report umaResolutionStatus='resolved' and prices
+        pinned to 1/0 (verified against the live Gamma API)."""
+        resolved = (m.get("umaResolutionStatus") == "resolved"
+                    or m.get("umaResolved") or m.get("resolved"))
+        if resolved:
+            return "resolved"
+        if m.get("closed"):
+            return "closed"
+        return "open"
+
+    def fetch_market_by_id(self, market_id: str) -> Optional[MarketSnapshot]:
+        """Fetch one market by id - open or resolved.
+
+        The active-market feed only returns open markets, so resolution of
+        held positions must be polled by id.
+        """
+        data = self.http.get(f"{self.BASE}/markets/{market_id}", use_cache=False)
+        if isinstance(data, list):
+            data = data[0] if data else None
+        if not isinstance(data, dict) or not data.get("id"):
+            return None
+        return self._to_snapshot(data)
 
     def fetch_markets(self, limit: int = 500) -> List[MarketSnapshot]:
         """Paginated fetch of open markets."""
@@ -198,6 +231,22 @@ class MockMarketSource(MarketSource):
         if self._markets is None:
             self._markets = [self._gen_market(i) for i in range(self.n_markets)]
         return self._markets[:limit]
+
+    def fetch_market_by_id(self, market_id: str) -> Optional[MarketSnapshot]:
+        for m in self._markets or []:
+            if m.market_id == market_id:
+                return m
+        return None
+
+    def resolve_market(self, market_id: str, yes_wins: bool) -> Optional[str]:
+        """Resolve one mock market (prices snap to 1/0 like the real API)."""
+        for m in self._markets or []:
+            if m.market_id == market_id:
+                m.status = "resolved"
+                m.resolution_outcome = m.outcomes[0] if yes_wins else m.outcomes[1]
+                m.outcome_prices = [1.0, 0.0] if yes_wins else [0.0, 1.0]
+                return m.resolution_outcome
+        return None
 
     # helpers used by tests/backtest -------------------------------
     def set_seed(self, seed: int):
