@@ -5,6 +5,7 @@ USAGE
   python main.py --init            create the database + wallet
   python main.py --once            run one full scan cycle, save state, dashboard
   python main.py --loop            run continuously every SCAN_INTERVAL_MINUTES
+  python main.py --dashboard       regenerate dashboard.html only
   python main.py --backtest [N]    run N-step backtest on simulated data
   python main.py --status          print wallet + position summary
 
