@@ -1,0 +1,71 @@
+name: Paper Trading Agent
+
+# Automated scheduled paper-trading runs. PAPER TRADING ONLY - the code
+# has real-money execution permanently disabled. Managed from mobile via
+# the GitHub app: use "Run workflow" for manual runs, or view Actions logs.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every ~10 minutes (minimum GitHub allows)
+  workflow_dispatch:          # manual run from the GitHub mobile app
+
+permissions:
+  contents: write             # needed to commit state + dashboard back
+
+concurrency:
+  group: paper-trading
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Initialize state (first run only)
+        run: |
+          if [ ! -f data/trading.db ]; then
+            python main.py --init
+          fi
+
+      - name: Run one paper-trading scan cycle
+        env:
+          # Optional: set repo secret OPENAI_API_KEY to enable LLM analysis.
+          # Keep AI_PROVIDER=heuristic for the free offline analyzer.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$OPENAI_API_KEY" ]; then
+            export AI_PROVIDER=openai
+          fi
+          # Never fail the workflow on a data-fetch hiccup - state is preserved.
+          python main.py --once || echo "SCAN_FAILED_BUT_KEPT_STATE" >> $GITHUB_STEP_SUMMARY
+
+      - name: Regenerate dashboard
+        if: always()
+        run: python main.py --dashboard
+
+      - name: Commit state and dashboard
+        if: always()
+        run: |
+          git config user.name "paper-trading-bot"
+          git config user.email "actions@github.com"
+          git add data/ dashboard.html 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "No state changes to commit."
+          else
+            git commit -m "paper-trading state update [skip ci]"
+            git push
+          fi
