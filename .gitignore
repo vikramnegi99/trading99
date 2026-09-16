@@ -1,0 +1,20 @@
+# state
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+logs/
+backtest_*/
+
+# secrets - NEVER commit these
+.env
+*.key
+*.pem
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
