@@ -14,7 +14,9 @@ permissions:
 
 concurrency:
   group: paper-trading
-  cancel-in-progress: true
+  # never cancel a mid-flight run: it could lose that cycle's state before
+  # the commit step (runs are short; overlap just queues)
+  cancel-in-progress: false
 
 jobs:
   scan:
@@ -46,6 +48,10 @@ jobs:
           # Optional: set repo secret OPENAI_API_KEY to enable LLM analysis.
           # Keep AI_PROVIDER=heuristic for the free offline analyzer.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Kill switch: set repository VARIABLE KILL_SWITCH=true (Settings ->
+          # Secrets and variables -> Actions -> Variables) to stop new trades
+          # without touching the workflow file.
+          KILL_SWITCH: ${{ vars.KILL_SWITCH }}
         run: |
           if [ -n "$OPENAI_API_KEY" ]; then
             export AI_PROVIDER=openai
@@ -62,7 +68,9 @@ jobs:
         run: |
           git config user.name "paper-trading-bot"
           git config user.email "actions@github.com"
-          git add data/ dashboard.html 2>/dev/null || true
+          # data/trading.db is the persistent state: the cycle ends with a WAL
+          # checkpoint, so the .db file alone carries the full state.
+          git add data/trading.db dashboard.html || true
           if git diff --staged --quiet; then
             echo "No state changes to commit."
           else

@@ -48,6 +48,22 @@ class MarketSnapshot:
             return None
         return (self.end_date - _now()) / 86400.0
 
+    def resolved_winner(self) -> Optional[str]:
+        """Name of the winning outcome, if this market has resolved.
+
+        Prefers an explicit resolution outcome; falls back to the outcome
+        whose price pinned to ~1.0 (how the Polymarket API reports resolved
+        markets, e.g. outcomePrices ["1", "0"]).
+        """
+        if not self.outcomes:
+            return None
+        if self.resolution_outcome and self.resolution_outcome in self.outcomes:
+            return self.resolution_outcome
+        for name, price in zip(self.outcomes, self.outcome_prices):
+            if price >= 0.995:
+                return name
+        return None
+
     def is_valid(self) -> bool:
         if not self.market_id or not self.question:
             return False

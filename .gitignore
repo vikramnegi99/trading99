@@ -1,6 +1,7 @@
-# state
-data/
-*.db
+# NOTE: data/trading.db IS committed on purpose - it is the paper-trading
+# state that must survive across separate GitHub Actions runs. Only files
+# that must stay local-only are ignored below (logs, sqlite sidecars).
+data/logs/
 *.db-journal
 *.db-wal
 *.db-shm
