@@ -26,6 +26,7 @@ class MarketSnapshot:
     created_at: Optional[float] = None
     end_date: Optional[float] = None
     url: str = ""
+    clob_token_id: Optional[str] = None  # YES token (CLOB price history)
     price_history: List[float] = field(default_factory=list)  # recent YES prices, oldest first
     snapshot_ts: float = field(default_factory=_now)
 
