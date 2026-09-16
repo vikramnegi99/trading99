@@ -1,0 +1,231 @@
+"""SQLite persistence layer. Everything the agent learns survives restarts."""
+import json
+import os
+import sqlite3
+import threading
+import time
+from typing import List, Optional
+
+from models.entities import (MarketSnapshot, PaperOrder, PaperPosition,
+                             PaperWallet, Signal, Trade)
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS wallet (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    starting_balance REAL NOT NULL,
+    balance REAL NOT NULL,
+    updated_ts REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    side TEXT NOT NULL,
+    quantity REAL NOT NULL DEFAULT 0,
+    avg_entry_price REAL NOT NULL DEFAULT 0,
+    mark_price REAL NOT NULL DEFAULT 0,
+    cost_basis REAL NOT NULL DEFAULT 0,
+    realized_pnl REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'open',
+    opened_ts REAL NOT NULL,
+    closed_ts REAL
+);
+CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status);
+CREATE INDEX IF NOT EXISTS idx_positions_market ON positions(market_id);
+
+CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    market_id TEXT NOT NULL,
+    side TEXT NOT NULL,
+    action TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    requested_price REAL NOT NULL,
+    executed_price REAL NOT NULL,
+    fees REAL NOT NULL,
+    slippage REAL NOT NULL,
+    notional REAL NOT NULL,
+    status TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_orders_ts ON orders(ts);
+CREATE INDEX IF NOT EXISTS idx_orders_market ON orders(market_id);
+
+CREATE TABLE IF NOT EXISTS trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    market_id TEXT NOT NULL,
+    side TEXT NOT NULL,
+    action TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    price REAL NOT NULL,
+    fees REAL NOT NULL,
+    pnl REAL
+);
+CREATE INDEX IF NOT EXISTS idx_trades_ts ON trades(ts);
+CREATE INDEX IF NOT EXISTS idx_trades_market ON trades(market_id);
+
+CREATE TABLE IF NOT EXISTS snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    market_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON snapshots(ts);
+CREATE INDEX IF NOT EXISTS idx_snapshots_market ON snapshots(market_id);
+
+CREATE TABLE IF NOT EXISTS ai_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    market_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_ts ON ai_decisions(ts);
+CREATE INDEX IF NOT EXISTS idx_ai_market ON ai_decisions(market_id);
+
+CREATE TABLE IF NOT EXISTS scans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    payload TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS equity_curve (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    balance REAL NOT NULL,
+    equity REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_equity_ts ON equity_curve(ts);
+"""
+
+
+class Database:
+    def __init__(self, path: str = "data/trading.db"):
+        self.path = path
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self._lock = threading.Lock()
+        self.conn = sqlite3.connect(path, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        with self._lock:
+            self.conn.executescript(SCHEMA)
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.commit()
+
+    def close(self):
+        with self._lock:
+            self.conn.commit()
+            self.conn.close()
+
+    # ------------------------------------------------------------- wallet
+    def init_wallet(self, starting_balance: float) -> PaperWallet:
+        row = self.conn.execute("SELECT * FROM wallet WHERE id=1").fetchone()
+        if row:
+            return PaperWallet(row["starting_balance"], row["balance"])
+        w = PaperWallet(starting_balance, starting_balance)
+        self.save_wallet(w)
+        return w
+
+    def save_wallet(self, w: PaperWallet):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO wallet(id, starting_balance, balance, updated_ts) "
+                "VALUES(1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+                "starting_balance=excluded.starting_balance, "
+                "balance=excluded.balance, updated_ts=excluded.updated_ts",
+                (w.starting_balance, w.balance, time.time()))
+            self.conn.commit()
+
+    # ---------------------------------------------------------- positions
+    def save_position(self, p: PaperPosition) -> int:
+        with self._lock:
+            cur = self.conn.execute(
+                """INSERT INTO positions(market_id, question, side, quantity,
+                     avg_entry_price, mark_price, cost_basis, realized_pnl,
+                     status, opened_ts, closed_ts)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (p.market_id, p.question, p.side, p.quantity, p.avg_entry_price,
+                 p.mark_price, p.cost_basis, p.realized_pnl, p.status,
+                 p.opened_ts, p.closed_ts))
+            self.conn.commit()
+            return cur.lastrowid
+
+    def update_position(self, pos_id: int, p: PaperPosition):
+        with self._lock:
+            self.conn.execute(
+                """UPDATE positions SET quantity=?, avg_entry_price=?, mark_price=?,
+                     cost_basis=?, realized_pnl=?, status=?, closed_ts=? WHERE id=?""",
+                (p.quantity, p.avg_entry_price, p.mark_price, p.cost_basis,
+                 p.realized_pnl, p.status, p.closed_ts, pos_id))
+            self.conn.commit()
+
+    def open_positions(self) -> List[tuple]:
+        return self.conn.execute(
+            "SELECT id, * FROM positions WHERE status='open'").fetchall()
+
+    def find_open_position(self, market_id: str) -> Optional[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT id, * FROM positions WHERE market_id=? AND status='open'",
+            (market_id,)).fetchone()
+
+    # -------------------------------------------------- orders/trades/logs
+    def save_order(self, o: PaperOrder):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO orders(ts, market_id, side, action, quantity, "
+                "requested_price, executed_price, fees, slippage, notional, status) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (o.ts, o.market_id, o.side, o.action, o.quantity,
+                 o.requested_price, o.executed_price, o.fees, o.slippage,
+                 o.notional, o.status))
+            self.conn.commit()
+
+    def save_trade(self, t: Trade):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO trades(ts, market_id, side, action, quantity, "
+                "price, fees, pnl) VALUES(?,?,?,?,?,?,?,?)",
+                (t.ts, t.market_id, t.side, t.action, t.quantity, t.price,
+                 t.fees, t.pnl))
+            self.conn.commit()
+
+    def save_snapshot(self, m: MarketSnapshot):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO snapshots(ts, market_id, question, payload) "
+                "VALUES(?,?,?,?)",
+                (m.snapshot_ts, m.market_id, m.question,
+                 json.dumps(m.to_dict())))
+            self.conn.commit()
+
+    def save_ai_decision(self, s: Signal, provider: str):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO ai_decisions(ts, market_id, provider, payload) "
+                "VALUES(?,?,?,?)",
+                (s.created_ts, s.market_id, provider,
+                 json.dumps(s.__dict__ if hasattr(s, "__dict__") else str(s))))
+            self.conn.commit()
+
+    def save_scan(self, payload: dict):
+        with self._lock:
+            self.conn.execute("INSERT INTO scans(ts, payload) VALUES(?,?)",
+                              (time.time(), json.dumps(payload)))
+            self.conn.commit()
+
+    def save_equity(self, balance: float, equity: float):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO equity_curve(ts, balance, equity) VALUES(?,?,?)",
+                (time.time(), balance, equity))
+            self.conn.commit()
+
+    # ------------------------------------------------------------ queries
+    def query(self, sql: str, params: tuple = ()) -> List[sqlite3.Row]:
+        return self.conn.execute(sql, params).fetchall()
+
+    def recent(self, table: str, limit: int = 20,
+               where: str = "", params: tuple = ()) -> List[sqlite3.Row]:
+        sql = f"SELECT * FROM {table} {where} ORDER BY id DESC LIMIT {int(limit)}"
+        return self.query(sql, params)
