@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paper Trading Dashboard</title>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;
+--muted:#8b949e;--green:#3fb950;--red:#f85149;--amber:#d29922;--blue:#58a6ff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;background:var(--bg);
+color:var(--text);padding:14px;max-width:760px;margin:0 auto}
+.banner{background:var(--amber);color:#000;text-align:center;font-weight:700;
+padding:8px;border-radius:8px;margin-bottom:12px;font-size:14px}
+h1{font-size:1.3rem;margin-bottom:4px}
+.sub{color:var(--muted);font-size:.8rem;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+gap:10px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;
+padding:12px}
+.card .k{color:var(--muted);font-size:.72rem;text-transform:uppercase;
+letter-spacing:.04em}
+.card .v{font-size:1.35rem;font-weight:700;margin-top:4px}
+.pos{color:var(--green)}.neg{color:var(--red)}
+table{width:100%;border-collapse:collapse;font-size:.78rem;margin:8px 0 18px}
+th,td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border);
+white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+th{color:var(--muted);font-weight:600}
+.tag{display:inline-block;background:var(--border);border-radius:10px;
+padding:1px 8px;font-size:.7rem}
+.hold{color:var(--muted)}
+footer{color:var(--muted);font-size:.72rem;text-align:center;margin-top:10px}
+</style></head><body>
+<div class="banner">PAPER TRADING ONLY - SIMULATED MONEY - NO REAL ORDERS</div>
+<h1>AI Paper Trading Agent</h1>
+<div class="sub">Mode: PAPER LIVE (real-money execution is disabled in code) -
+Updated 2026-09-16T07:53:22+00:00</div>
+<div class="grid">
+<div class="card"><div class="k">Starting balance</div>
+<div class="v">${starting:.2f}</div></div>
+<div class="card"><div class="k">Current balance</div>
+<div class="v">${balance:.2f}</div></div>
+<div class="card"><div class="k">Total P&L</div>
+<div class="v pos">+${pnl:.2f}</div></div>
+<div class="card"><div class="k">Return</div>
+<div class="v pos">+{ret:.2f}%</div></div>
+<div class="card"><div class="k">Trades</div><div class="v">0</div></div>
+<div class="card"><div class="k">Win rate</div>
+<div class="v">{wr:.1f}%</div></div>
+<div class="card"><div class="k">Avg trade P&L</div>
+<div class="v">${avg:.3f}</div></div>
+<div class="card"><div class="k">Largest win</div>
+<div class="v pos">${lw:.2f}</div></div>
+<div class="card"><div class="k">Largest loss</div>
+<div class="v neg">${ll:.2f}</div></div>
+<div class="card"><div class="k">Max drawdown</div>
+<div class="v">{mdd:.2f}%</div></div>
+<div class="card"><div class="k">Unrealized</div>
+<div class="v pos">+${unr:.2f}</div></div>
+<div class="card"><div class="k">Profit factor</div>
+<div class="v">-</div></div>
+</div>
+
+<h2 style="font-size:1rem;margin-bottom:6px">Open positions (0)</h2>
+<table><tr><th>Market</th><th>Side</th><th>Qty</th><th>Entry</th>
+<th>Mark</th><th>P&L</th></tr><tr><td colspan=6>None</td></tr></table>
+
+<h2 style="font-size:1rem;margin-bottom:6px">Recent AI signals</h2>
+<table><tr><th>Market</th><th>Mkt p</th><th>Est p</th><th>Edge</th>
+<th>Conf</th><th>Decision</th></tr><tr><td colspan=6>None</td></tr></table>
+
+<h2 style="font-size:1rem;margin-bottom:6px">Recent trades</h2>
+<table><tr><th>Time</th><th>Market</th><th>Action</th><th>Qty</th>
+<th>Price</th><th>P&L</th></tr><tr><td colspan=6>None</td></tr></table>
+
+<h2 style="font-size:1rem;margin-bottom:6px">Last scans</h2>
+<table><tr><th>Markets</th><th>Candidates</th><th>Analyzed</th>
+<th>Signals</th><th>Trades</th><th>Balance</th></tr><tr><td>1000</td><td>602</td><td>0</td><td>0</td><td>0</td><td>$100.00</td></tr></table>
+
+<footer>Simulation - slippage/fees applied. Not investment advice.
+No claim of profitability without sufficient paper/backtest evidence.</footer>
+</body></html>
