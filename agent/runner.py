@@ -39,6 +39,9 @@ class Agent:
         self.risk = RiskManager(cfg, self.db)
         self.engine = PaperTradingEngine(cfg, self.db, self.wallet)
         self.guard = DuplicateGuard(cooldown_seconds=int(cfg.SCAN_INTERVAL_MINUTES * 60))
+        # Cross-run dedup window: markets analyzed within this many seconds
+        # (persisted in ai_decisions, so it survives restarts/Actions runs)
+        self.dedup_cooldown = int(cfg.SCAN_INTERVAL_MINUTES * 60)
 
     # ------------------------------------------------------------- cycle
     def run_cycle(self) -> dict:
@@ -67,10 +70,24 @@ class Agent:
         # 9 (early). settle any resolved markets we hold positions in
         for row in self.db.open_positions():
             m = market_map.get(row["market_id"])
-            if m and m.status == "resolved" and m.resolution_outcome:
-                winning_side = "YES" if m.resolution_outcome == m.outcomes[0] else "NO"
-                self.engine.settle_position(row["id"], row, winning_side)
-                stats["resolved"] += 1
+            if m is None or m.status != "resolved":
+                # Resolved markets drop out of the active-market feed,
+                # so poll them individually by id.
+                try:
+                    m = self.source.fetch_market_by_id(row["market_id"]) or m
+                except Exception as exc:  # noqa: BLE001 - fail safe
+                    log_event(logger, "resolution_fetch_failed",
+                              market_id=row["market_id"], error=str(exc)[:120])
+            if m is None or m.status != "resolved":
+                continue
+            winner = m.resolved_winner()
+            if winner is None:
+                log_event(logger, "resolution_outcome_unknown",
+                          market_id=row["market_id"])
+                continue
+            winning_side = "YES" if winner == m.outcomes[0] else "NO"
+            self.engine.settle_position(row["id"], row, winning_side)
+            stats["resolved"] += 1
 
         # 3. filter
         candidates = filter_markets(markets, cfg)
@@ -82,9 +99,16 @@ class Agent:
         for m in candidates:
             if analyzed >= cfg.MAX_AI_CALLS_PER_CYCLE:
                 break
-            if not self.guard.should_analyze(m.market_id, time.time()):
+            now = time.time()
+            if not self.guard.should_analyze(m.market_id, now):
                 continue
-            self.guard.mark(m.market_id, time.time())
+            # Cross-run dedup: skip markets analyzed within the cooldown
+            # window. ai_decisions persists, so this also works across
+            # separate GitHub Actions runs (saves AI cost).
+            last = self.db.last_ai_decision_ts(m.market_id)
+            if last is not None and now - last < self.dedup_cooldown:
+                continue
+            self.guard.mark(m.market_id, now)
             sig = self.analyzer.analyze(m, extract_features(m))
             if sig is None:
                 continue
@@ -127,6 +151,10 @@ class Agent:
         self.db.save_scan(stats)
         for m in markets[:40]:  # snapshot the busiest markets for history
             self.db.save_snapshot(m)
+
+        # Keep the state file small and safe to commit:
+        self.db.prune()          # bound table growth
+        self.db.checkpoint()     # flush WAL so the .db alone carries state
 
         log_event(logger, "SCAN SUMMARY", **stats)
         return stats

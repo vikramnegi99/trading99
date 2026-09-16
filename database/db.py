@@ -225,6 +225,52 @@ class Database:
     def query(self, sql: str, params: tuple = ()) -> List[sqlite3.Row]:
         return self.conn.execute(sql, params).fetchall()
 
+    def last_ai_decision_ts(self, market_id: str) -> Optional[float]:
+        """Most recent analysis timestamp for a market (cross-run dedup)."""
+        row = self.conn.execute(
+            "SELECT MAX(ts) AS t FROM ai_decisions WHERE market_id=?",
+            (market_id,)).fetchone()
+        return row["t"] if row else None
+
+    def checkpoint(self):
+        """Flush the WAL into the main .db file.
+
+        Called at the end of every cycle so that committing/copying the
+        .db file alone (as the GitHub Actions workflow does) never loses
+        recent transactions.
+        """
+        with self._lock:
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            self.conn.commit()
+
+    def prune(self, snapshots_per_market: int = 5, scans: int = 2000,
+              equity: int = 5000, ai_decisions: int = 5000):
+        """Bound table growth so the committed state file stays small.
+
+        Keeps the newest N snapshots per market and the newest N rows of
+        the scan/equity/ai_decision logs. Positions, trades and orders are
+        NEVER pruned - they are the trading history.
+        """
+        with self._lock:
+            self.conn.execute(
+                """DELETE FROM snapshots WHERE id IN (
+                     SELECT id FROM (
+                       SELECT id, ROW_NUMBER() OVER (
+                         PARTITION BY market_id ORDER BY id DESC) AS rn
+                       FROM snapshots)
+                     WHERE rn > ?)""", (snapshots_per_market,))
+            self.conn.execute(
+                "DELETE FROM scans WHERE id <= "
+                "(SELECT COALESCE(MAX(id), 0) - ? FROM scans)", (scans,))
+            self.conn.execute(
+                "DELETE FROM equity_curve WHERE id <= "
+                "(SELECT COALESCE(MAX(id), 0) - ? FROM equity_curve)", (equity,))
+            self.conn.execute(
+                "DELETE FROM ai_decisions WHERE id <= "
+                "(SELECT COALESCE(MAX(id), 0) - ? FROM ai_decisions)",
+                (ai_decisions,))
+            self.conn.commit()
+
     def recent(self, table: str, limit: int = 20,
                where: str = "", params: tuple = ()) -> List[sqlite3.Row]:
         sql = f"SELECT * FROM {table} {where} ORDER BY id DESC LIMIT {int(limit)}"
