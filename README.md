@@ -36,7 +36,7 @@ cp .env.example .env          # optional: tweak settings
 
 python main.py --init         # create wallet ($100 simulated)
 python main.py --once         # one scan cycle + dashboard
-python main.py --status        # performance summary
+python main.py --status       # performance summary
 python main.py --loop          # run continuously every SCAN_INTERVAL_MINUTES
 python main.py --backtest 60   # 60-step backtest on simulated markets
 ```
@@ -91,7 +91,7 @@ All settings live in `config.py` with env-var overrides (see
 |---|---|---|
 | STARTING_BALANCE | 100 | simulated bankroll ($) |
 | SCAN_INTERVAL_MINUTES | 10 | loop interval |
-| MIN_EDGE | 0.08 | min est_prob − mkt_prob to trade |
+| MIN_EDGE | 0.05 | min est_prob − mkt_prob to trade (repo variable `MIN_EDGE` overrides, mobile-configurable) |
 | MIN_CONFIDENCE | 0.60 | min AI confidence |
 | MAX_POSITION_PERCENT | 0.06 | max 6% of bankroll per trade |
 | MAX_OPEN_EXPOSURE_PERCENT | 0.25 | max total open exposure |

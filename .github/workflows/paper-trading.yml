@@ -52,6 +52,9 @@ jobs:
           # Secrets and variables -> Actions -> Variables) to stop new trades
           # without touching the workflow file.
           KILL_SWITCH: ${{ vars.KILL_SWITCH }}
+          # Min edge to enter a trade (repo VARIABLE, mobile-configurable).
+          # Unset falls back to the code default (0.05).
+          MIN_EDGE: ${{ vars.MIN_EDGE }}
         run: |
           if [ -n "$OPENAI_API_KEY" ]; then
             export AI_PROVIDER=openai

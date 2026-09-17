@@ -7,14 +7,11 @@ enable real-money trading.
 import os
 import sys
 
-
 def _bool(value) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
-
 class SafetyError(RuntimeError):
     """Raised if anything ever tries to enable real-money trading."""
-
 
 class Config:
     # ------------------------------------------------------------------ safety
@@ -44,7 +41,11 @@ class Config:
         # ------------------------------------------------------------- trading
         self.STARTING_BALANCE = float(env.get("STARTING_BALANCE", "100"))
         self.SCAN_INTERVAL_MINUTES = float(env.get("SCAN_INTERVAL_MINUTES", "10"))
-        self.MIN_EDGE = float(env.get("MIN_EDGE", "0.08"))
+        # Minimum edge to enter a trade. Default 0.05; override at runtime
+        # with the repository variable MIN_EDGE (Settings -> Secrets and
+        # variables -> Actions -> Variables) - the workflow wires it in, so
+        # you can tune it from the GitHub mobile app without code changes.
+        self.MIN_EDGE = float(env.get("MIN_EDGE", "0.05"))
         self.MIN_CONFIDENCE = float(env.get("MIN_CONFIDENCE", "0.60"))
         self.MAX_SPREAD = float(env.get("MAX_SPREAD", "0.05"))
         self.MIN_LIQUIDITY = float(env.get("MIN_LIQUIDITY", "1000"))
