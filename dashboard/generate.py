@@ -142,6 +142,9 @@ Updated {updated}</div>
 <table><tr><th>Markets</th><th>Candidates</th><th>Analyzed</th>
 <th>Signals</th><th>Trades</th><th>Balance</th></tr>{scan_rows}</table>
 
+<h2 style="font-size:1rem;margin-bottom:6px">Episode (24h challenge)</h2>
+{episode_section}
+
 <footer>Simulation - slippage/fees applied. Not investment advice.
 No claim of profitability without sufficient paper/backtest evidence.</footer>
 </body></html>"""
@@ -157,6 +160,77 @@ def _cls(v: float) -> str:
 
 def _sign(v: float) -> str:
     return "+" if v >= 0 else ""
+
+
+def _fmt_ts(ts) -> str:
+    import datetime
+    return datetime.datetime.fromtimestamp(ts).strftime("%d %b %H:%M")
+
+
+def _episode_section(db: Database, current_balance: float) -> str:
+    """Latest completed episode report + the in-progress episode."""
+    rows = []
+    completed = db.query(
+        "SELECT * FROM episodes WHERE status='completed' "
+        "ORDER BY id DESC LIMIT 1")
+    if completed:
+        ep = completed[0]
+        try:
+            r = json.loads(ep["report"])
+        except (TypeError, ValueError):
+            r = {}
+        rows.append(
+            f"<tr><td>#{ep['id']} done</td>"
+            f"<td>{_fmt_ts(ep['started_ts'])} - {_fmt_ts(ep['ended_ts'])}</td>"
+            f"<td>${r.get('starting_balance', 0):.2f} &rarr; "
+            f"${r.get('ending_balance', 0):.2f}</td>"
+            f"<td>{r.get('return_pct', 0):+.2f}%</td>"
+            f"<td>{r.get('trades', 0)}</td>"
+            f"<td>{r.get('win_rate', 0):.1f}%</td>"
+            f"<td>{r.get('max_drawdown_pct', 0):.2f}%</td>"
+            f"<td>{r.get('avg_edge', 0):.4f}</td>"
+            f"<td>{r.get('avg_confidence', 0):.2f}</td>"
+            f"<td><b>{r.get('final_score', '-')}</b></td></tr>")
+    active = db.active_episode()
+    if active is not None:
+        n_buy = db.query(
+            "SELECT COUNT(*) AS c FROM trades WHERE action='BUY' AND ts >= ?",
+            (active["started_ts"],))[0]["c"]
+        ret = (current_balance - active["starting_balance"]) \
+            / active["starting_balance"] * 100 \
+            if active["starting_balance"] else 0
+        rows.append(
+            f"<tr><td>#{active['id']} live</td>"
+            f"<td>{_fmt_ts(active['started_ts'])} - now</td>"
+            f"<td>${active['starting_balance']:.2f} &rarr; "
+            f"${current_balance:.2f}</td>"
+            f"<td>{ret:+.2f}%</td>"
+            f"<td>{n_buy}</td><td>-</td><td>-</td><td>-</td><td>-</td>"
+            f"<td>-</td></tr>")
+    if not rows:
+        return "<p class='sub'>No episode data yet.</p>"
+    html = ("<table><tr><th>Episode</th><th>Period</th><th>Balance</th>"
+            "<th>Return</th><th>Trades</th><th>Win rate</th><th>Max DD</th>"
+            "<th>Avg edge</th><th>Avg conf</th><th>Score</th></tr>"
+            + "".join(rows) + "</table>")
+    # Top rejected opportunities of the last completed episode
+    if completed:
+        try:
+            r = json.loads(completed[0]["report"])
+        except (TypeError, ValueError):
+            r = {}
+        top = (r.get("top_20_rejections") or [])[:5]
+        if top:
+            rej = "".join(
+                f"<tr><td>{_e(t.get('market_id', ''))}</td>"
+                f"<td>{_e(str(t.get('edge', '')))}</td>"
+                f"<td>{_e(str(t.get('confidence', '')))}</td>"
+                f"<td>{_e(t.get('reasons', ''))}</td></tr>" for t in top)
+            html += ("<div class='sub' style='margin-top:6px'>Top rejected "
+                     "opportunities (best first, exact reason):</div>"
+                     "<table><tr><th>Market</th><th>Edge</th><th>Conf</th>"
+                     f"<th>Rejection reason</th></tr>{rej}</table>")
+    return html
 
 
 def generate_dashboard(cfg: Config, db: Database, out_path: str = None) -> str:
@@ -221,6 +295,7 @@ def generate_dashboard(cfg: Config, db: Database, out_path: str = None) -> str:
         "signal_rows": signal_rows,
         "trade_rows": trade_rows,
         "scan_rows": scan_rows,
+        "episode_section": _episode_section(db, s["current_balance"]),
     }
     page = TEMPLATE
     for key, val in values.items():

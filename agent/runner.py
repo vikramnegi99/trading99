@@ -8,6 +8,7 @@ import time
 from typing import Dict, List
 
 from ai.analyzer import DuplicateGuard, build_analyzer
+from agent.episode import EpisodeManager
 from config import Config
 from data.sources import FailingSource, MarketSource, MockMarketSource, PolymarketSource
 from database.db import Database
@@ -39,6 +40,7 @@ class Agent:
         self.risk = RiskManager(cfg, self.db)
         self.engine = PaperTradingEngine(cfg, self.db, self.wallet)
         self.guard = DuplicateGuard(cooldown_seconds=int(cfg.SCAN_INTERVAL_MINUTES * 60))
+        self.episodes = EpisodeManager(cfg, self.db)
         # Cross-run dedup window: markets analyzed within this many seconds
         # (persisted in ai_decisions, so it survives restarts/Actions runs)
         self.dedup_cooldown = int(cfg.SCAN_INTERVAL_MINUTES * 60)
@@ -53,6 +55,12 @@ class Agent:
         }
         log_event(logger, "SCAN START")
         cfg = self.cfg
+
+        # 0. episode lifecycle: close the 24h challenge if due, then
+        # guarantee an active episode (fresh $100 on rollover)
+        ep = self.episodes.ensure(self.wallet)
+        episode_id = ep["id"] if ep is not None else None
+        stats["episode_id"] = episode_id
 
         # 1-2. fetch + validate
         try:
@@ -129,6 +137,12 @@ class Agent:
                 signals.append((sig, m))
             else:
                 stats["rejected"] += 1
+                # challenge log: rejected opportunity + exact reason
+                if episode_id is not None:
+                    self.db.log_rejection(
+                        episode_id, "signal", m.market_id, m.question,
+                        sig.market_probability, sig.estimated_probability,
+                        sig.edge, sig.confidence, reasons)
         stats["ai_analyzed"] = analyzed
         stats["signals"] = len(signals)
 
@@ -145,6 +159,12 @@ class Agent:
                 stats["rejected"] += 1
                 log_event(logger, "trade_vetoed", market_id=m.market_id,
                           reasons=decision.reasons)
+                # challenge log: risk-stage veto + exact reason
+                if episode_id is not None:
+                    self.db.log_rejection(
+                        episode_id, "risk", m.market_id, m.question,
+                        sig.market_probability, sig.estimated_probability,
+                        sig.edge, sig.confidence, decision.reasons)
 
         # 8. mark positions
         self.engine.update_positions(market_map)
