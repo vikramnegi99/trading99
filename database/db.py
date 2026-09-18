@@ -98,6 +98,32 @@ CREATE TABLE IF NOT EXISTS equity_curve (
     equity REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_equity_ts ON equity_curve(ts);
+
+CREATE TABLE IF NOT EXISTS episodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_ts REAL NOT NULL,
+    ended_ts REAL,
+    starting_balance REAL NOT NULL,
+    ending_balance REAL,
+    status TEXT NOT NULL DEFAULT 'active',
+    report TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_episodes_status ON episodes(status);
+
+CREATE TABLE IF NOT EXISTS rejections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    episode_id INTEGER,
+    stage TEXT NOT NULL,
+    market_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    market_probability REAL,
+    estimated_probability REAL,
+    edge REAL,
+    confidence REAL,
+    reasons TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rejections_ep ON rejections(episode_id, ts);
 """
 
 
@@ -221,6 +247,56 @@ class Database:
                 (time.time(), balance, equity))
             self.conn.commit()
 
+    # ---------------------------------------------------------- episodes
+    def active_episode(self) -> Optional[sqlite3.Row]:
+        """The currently running challenge episode, if any."""
+        return self.conn.execute(
+            "SELECT * FROM episodes WHERE status='active' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    def start_episode(self, starting_balance: float,
+                      started_ts: float = None) -> int:
+        with self._lock:
+            cur = self.conn.execute(
+                "INSERT INTO episodes(started_ts, starting_balance, status) "
+                "VALUES(?,?,'active')",
+                (started_ts if started_ts is not None else time.time(),
+                 starting_balance))
+            self.conn.commit()
+            return cur.lastrowid
+
+    def complete_episode(self, ep_id: int, ended_ts: float,
+                         ending_balance: float, report: dict):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE episodes SET ended_ts=?, ending_balance=?, "
+                "status='completed', report=? WHERE id=?",
+                (ended_ts, ending_balance, json.dumps(report), ep_id))
+            self.conn.commit()
+
+    def log_rejection(self, episode_id, stage: str,
+                      market_id: str, question: str,
+                      market_probability, estimated_probability,
+                      edge, confidence, reasons) -> None:
+        """Record a rejected opportunity with its EXACT rejection reason."""
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO rejections(ts, episode_id, stage, market_id, "
+                "question, market_probability, estimated_probability, edge, "
+                "confidence, reasons) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (time.time(), episode_id, stage, market_id,
+                 (question or "")[:500], market_probability,
+                 estimated_probability, edge, confidence,
+                 "; ".join(str(r) for r in reasons)))
+            self.conn.commit()
+
+    def top_rejections(self, episode_id: int, limit: int = 20):
+        """Best rejected opportunities of an episode (highest edge first)."""
+        return self.conn.execute(
+            "SELECT * FROM rejections WHERE episode_id=? "
+            "ORDER BY COALESCE(edge, -1) DESC, ts DESC LIMIT ?",
+            (episode_id, int(limit))).fetchall()
+
     # ------------------------------------------------------------ queries
     def query(self, sql: str, params: tuple = ()) -> List[sqlite3.Row]:
         return self.conn.execute(sql, params).fetchall()
@@ -238,6 +314,7 @@ class Database:
         Called at the end of every cycle so that committing/copying the
         .db file alone (as the GitHub Actions workflow does) never loses
         recent transactions.
+
         """
         with self._lock:
             self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -250,6 +327,7 @@ class Database:
         Keeps the newest N snapshots per market and the newest N rows of
         the scan/equity/ai_decision logs. Positions, trades and orders are
         NEVER pruned - they are the trading history.
+
         """
         with self._lock:
             self.conn.execute(
@@ -267,8 +345,10 @@ class Database:
                 "(SELECT COALESCE(MAX(id), 0) - ? FROM equity_curve)", (equity,))
             self.conn.execute(
                 "DELETE FROM ai_decisions WHERE id <= "
-                "(SELECT COALESCE(MAX(id), 0) - ? FROM ai_decisions)",
-                (ai_decisions,))
+                "(SELECT COALESCE(MAX(id), 0) - ? FROM ai_decisions)", (ai_decisions,))
+            self.conn.execute(
+                "DELETE FROM rejections WHERE id <= "
+                "(SELECT COALESCE(MAX(id), 0) - ? FROM rejections)", (5000,))
             self.conn.commit()
 
     def recent(self, table: str, limit: int = 20,
