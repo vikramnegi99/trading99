@@ -116,24 +116,55 @@ All settings live in `config.py` with env-var overrides (see
 ## Project structure
 
 ```
-agent/       scan cycle + continuous loop
+agent/       scan cycle + continuous loop + 24h challenge episodes
 ai/          heuristic + optional LLM analyzers, signal validation
 backtest/    replay engine (clearly labelled BACKTEST)
 data/        market sources (Polymarket public API, mock)
 database/    SQLite persistence (wallet, positions, orders, trades,
-             snapshots, AI decisions, equity curve)
+             snapshots, AI decisions, equity curve, episodes, rejections)
 dashboard/   mobile-friendly HTML dashboard generator
 execution/   paper trading engine (100% simulated)
 models/      dataclasses: MarketSnapshot, Signal, PaperOrder, ...
 risk/        Kelly sizing + hard risk limits
 strategy/   filtering, features, edge evaluation
-tests/       pytest suite (53 tests, incl. cross-run integration)
+tests/       pytest suite (76 tests, incl. cross-run integration + episodes)
 .github/     Actions: scheduled runs + CI
 ```
 
 Market resolution is detected by polling each held market by id
 (resolved markets disappear from the active feed; the Gamma API reports
 them with `umaResolutionStatus: "resolved"` and prices pinned to 1/0).
+
+## 24h Challenge Episodes
+
+On top of the continuous paper wallet, the agent runs self-contained
+**24-hour challenge episodes**: each episode starts with a fresh **$100
+virtual capital**, and at the end of the 24 hours it is closed out
+(open positions are marked-to-market into the report), a full report is
+stored in the `episodes` table and shown on the dashboard.
+
+The episode layer is strictly **observational** - it never loosens the
+trading thresholds and never pressures the agent to trade. An episode
+with zero trades is a valid, unpenalized outcome.
+
+**Performance score (0-100, from a neutral 50):**
+
+| Component | Effect |
+|---|---|
+| Return | +2 pts per +1% episode return (cap +30 up / -20 down) |
+| Drawdown | -1 pt per 1% max drawdown (cap -15) |
+| Trade quality | +/- per $0.50 avg realized P&L per trade (cap +/-10; exactly 0 with no trades) |
+| Probability calibration | Brier score of entry estimates vs outcomes (cap +/-10; neutral under 3 resolved samples) |
+| Risk discipline | -5 pts per risk-limit violation (cap -15) |
+| Churn penalty | -1 pt per trade above 24 in an episode (cap -10) - punishes overtrading, never NOT trading |
+
+The end-of-episode report contains: starting balance, ending balance,
+return, trades, win rate, max drawdown, average edge, average
+confidence, final score (with full breakdown) and the **top 20 rejected
+opportunities with their exact rejection reason** (e.g.
+`edge_too_small:0.041`), logged at both the signal stage and the risk
+stage. The dashboard shows the latest completed episode plus the live
+one.
 
 ## Modes
 
