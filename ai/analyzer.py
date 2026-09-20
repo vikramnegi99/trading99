@@ -49,7 +49,6 @@ class Analyzer(ABC):
     def name(self) -> str:
         ...
 
-
 class HeuristicAnalyzer(Analyzer):
     """Statistical baseline: mean reversion + momentum on price history.
 
@@ -57,6 +56,14 @@ class HeuristicAnalyzer(Analyzer):
     pipeline runs for free; it is NOT a claim of a real edge. Swap in the
     LLM provider or write a custom analyzer for real research.
     """
+
+    def __init__(self, cfg: Config = None):
+        # Use the CONFIGURED thresholds, never hard-coded ones: the previous
+        # hard-coded 0.08 silently overrode the configured MIN_EDGE (0.05),
+        # so lowering MIN_EDGE via the repo variable had no effect here.
+        self.cfg = cfg
+        self.min_edge = cfg.MIN_EDGE if cfg is not None else 0.05
+        self.min_confidence = cfg.MIN_CONFIDENCE if cfg is not None else 0.60
 
     def name(self):
         return "heuristic"
@@ -71,8 +78,14 @@ class HeuristicAnalyzer(Analyzer):
         volatility = features.get("volatility", 0.0)
 
         # Estimate: current price pulled toward recent mean, tilted by momentum.
-        estimated = p - 0.5 * mean_dev + 0.25 * momentum
-        estimated = min(0.95, max(0.05, estimated))
+        raw = p - 0.5 * mean_dev + 0.25 * momentum
+        # Probability bounds. If the RAW estimate falls outside them, the
+        # estimate gets CLAMPED: the heuristic has no real information at
+        # that extreme, so any "edge" is a floor/ceiling ARTIFACT (e.g. the
+        # 0.05 floor on a market priced at 0.0005 manufactures a fake
+        # 0.0495 edge). Track it so the confidence can be honest.
+        clamped = raw < 0.05 or raw > 0.95
+        estimated = min(0.95, max(0.05, raw))
 
         # Confidence from liquidity, data depth and stability.
         liq_score = min(1.0, features.get("liquidity", 0) / 100_000.0)
@@ -81,14 +94,23 @@ class HeuristicAnalyzer(Analyzer):
         confidence = 0.35 + 0.25 * liq_score + 0.2 * depth_score + 0.2 * stab_score
         confidence = min(0.95, confidence)
 
-        edge = estimated - p
         flags = []
+        if clamped:
+            # A clamped estimate is by construction weaker evidence than
+            # the configured minimum confidence. Cap it strictly BELOW
+            # MIN_CONFIDENCE so a clamp artifact can never masquerade as
+            # a high-confidence trade signal (this does NOT force trades -
+            # it only refuses to trust manufactured edges).
+            confidence = min(confidence, max(0.0, self.min_confidence - 0.05))
+            flags.append("clamped_estimate")
+
+        edge = estimated - p
         if features.get("spread", 1) > 0.03:
             flags.append("wide_spread")
         if features.get("liquidity", 0) < 10_000:
             flags.append("thin_liquidity")
 
-        if abs(edge) < 0.08 or confidence < 0.60:
+        if abs(edge) < self.min_edge or confidence < self.min_confidence:
             decision = "HOLD"
         elif edge > 0:
             decision = "BUY_YES"
@@ -107,7 +129,6 @@ class HeuristicAnalyzer(Analyzer):
             risk_flags=flags,
         )
 
-
 class OpenAIAnalyzer(Analyzer):
     """Optional LLM analyzer against an OpenAI-compatible endpoint."""
 
@@ -117,7 +138,7 @@ class OpenAIAnalyzer(Analyzer):
             raise ValueError("OPENAI_API_KEY not set")
         self.cfg = cfg
         self.http = HttpClient(timeout=60, retries=2, rate_limit=1.0)
-        self.fallback = HeuristicAnalyzer()
+        self.fallback = HeuristicAnalyzer(cfg)
 
     def name(self):
         return "openai"
@@ -168,7 +189,6 @@ class OpenAIAnalyzer(Analyzer):
                       market_id=market.market_id, error=str(exc)[:200])
             return self.fallback.analyze(market, features)
 
-
 class DuplicateGuard:
     """Prevents re-analyzing the same market within a cooldown window."""
 
@@ -185,11 +205,10 @@ class DuplicateGuard:
     def mark(self, market_id: str, now: float):
         self._seen[market_id] = now
 
-
 def build_analyzer(cfg: Config) -> Analyzer:
     if cfg.AI_PROVIDER == "openai" and cfg.OPENAI_API_KEY:
         try:
             return OpenAIAnalyzer(cfg)
         except Exception as exc:  # noqa: BLE001
             logger.warning("LLM unavailable (%s), using heuristic", exc)
-    return HeuristicAnalyzer()
+    return HeuristicAnalyzer(cfg)
