@@ -51,9 +51,8 @@ Output: `dashboard.html` (open in any browser) and state in
 
 1. Push this repo to GitHub.
 2. The workflow `.github/workflows/paper-trading.yml` runs every ~10
-   minutes on a schedule: validates the database, runs the isolated
-   canary, runs one scan cycle, and commits the updated state +
-   `dashboard.html` back to the repo.
+   minutes on a schedule, runs one scan cycle, and commits the updated
+   state + `dashboard.html` back to the repo.
 3. On mobile: open the repo in the GitHub app → **Actions** → tap a run
    for logs; open `dashboard.html` for stats; use **Run workflow** for a
    manual run.
@@ -89,7 +88,7 @@ rejected and falls back safely; the agent never trusts unvalidated JSON.
 ## Configuration
 
 All settings live in `config.py` with env-var overrides (see
-`.env.example`), validated at startup. Highlights:
+`.env.example`). Highlights:
 
 | Setting | Default | Meaning |
 |---|---|---|
