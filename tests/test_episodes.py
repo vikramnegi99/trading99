@@ -1,9 +1,10 @@
-"""Tests for the PAPER-ONLY 24h Challenge/Episode system.
+"""Tests for the PAPER-ONLY 24h evaluation-window system.
 
-Covers: episode lifecycle ($100 start, 24h rollover, mark-to-market close),
-the performance score (return/drawdown/quality/calibration/risk + churn and
-violation penalties), no-trade no-pressure semantics, rejection logging
-with exact reasons, and unchanged safety limits.
+Covers: episode lifecycle (one-time $100 bankroll, 24h window rollover,
+NO wallet reset - positions are continuous), the performance score
+(return/drawdown/quality/calibration/risk + churn and violation
+penalties), no-trade no-pressure semantics, rejection logging with
+exact reasons, and unchanged safety limits.
 """
 import json
 import time
@@ -14,7 +15,6 @@ from agent.episode import (CHURN_FREE_TRADES, EpisodeManager, compute_score)
 from agent.runner import Agent
 from models.entities import Signal, Trade
 import config as cfgmod
-
 
 def _env(db_path, log_dir, extra=None):
     env = {
@@ -30,7 +30,6 @@ def _env(db_path, log_dir, extra=None):
         env.update(extra)
     return env
 
-
 # ------------------------------------------------------------ score (pure)
 def test_score_neutral_baseline():
     score, breakdown = compute_score(
@@ -39,7 +38,6 @@ def test_score_neutral_baseline():
     assert score == 50.0
     assert all(v == 0 for k, v in breakdown.items()
                if k in ("trade_quality", "calibration"))
-
 
 def test_score_zero_trades_never_penalized():
     """No forced trades: an all-HOLD episode scores a clean neutral 50."""
@@ -55,13 +53,11 @@ def test_score_zero_trades_never_penalized():
     assert b2["trade_quality"] == 0.0 and b2["calibration"] == 0.0
     assert score2 < score  # only return/drawdown can drag it down
 
-
 def test_score_return_and_drawdown():
     score, b = compute_score(return_pct=5, max_dd_pct=3, n_trades=1,
                             avg_pnl_per_trade=0.0, brier=None)
     assert b["return"] == 10.0          # +2 per +1%
     assert b["drawdown"] == -3.0        # -1 per 1%
-
 
 def test_score_trade_quality():
     score, b = compute_score(return_pct=0, max_dd_pct=0, n_trades=10,
@@ -70,7 +66,6 @@ def test_score_trade_quality():
     _, b2 = compute_score(return_pct=0, max_dd_pct=0, n_trades=10,
                           avg_pnl_per_trade=-1.0, brier=None)
     assert b2["trade_quality"] == -2.0
-
 
 def test_score_calibration_brier():
     _, b = compute_score(return_pct=0, max_dd_pct=0, n_trades=4,
@@ -83,7 +78,6 @@ def test_score_calibration_brier():
     _, b3 = compute_score(return_pct=0, max_dd_pct=0, n_trades=4,
                           avg_pnl_per_trade=0, brier=None)
     assert b3["calibration"] == 0.0
-
 
 def test_score_excessive_trading_penalty():
     """Churn: trades above the free allowance cost points; below costs none."""
@@ -100,7 +94,6 @@ def test_score_excessive_trading_penalty():
                              avg_pnl_per_trade=0, brier=None)
     assert b_max["churn_penalty"] == -10
 
-
 def test_score_risk_violation_penalty():
     _, b1 = compute_score(return_pct=0, max_dd_pct=0, n_trades=0,
                           avg_pnl_per_trade=0, brier=None, risk_violations=2)
@@ -108,7 +101,6 @@ def test_score_risk_violation_penalty():
     _, b2 = compute_score(return_pct=0, max_dd_pct=0, n_trades=0,
                           avg_pnl_per_trade=0, brier=None, risk_violations=9)
     assert b2["risk_discipline"] == -15  # capped
-
 
 def test_score_clamped_0_100():
     s_lo, _ = compute_score(return_pct=-50, max_dd_pct=90, n_trades=30,
@@ -118,7 +110,6 @@ def test_score_clamped_0_100():
                             avg_pnl_per_trade=10, brier=0.0)
     assert s_lo == 0.0
     assert s_hi == 100.0  # 50 + 30 (return) + 10 (quality) + 10 (calib)
-
 
 # ----------------------------------------------------------- lifecycle
 def test_episode_starts_on_first_cycle(tmp_path):
@@ -131,15 +122,17 @@ def test_episode_starts_on_first_cycle(tmp_path):
     assert a.wallet.balance == 100.0 or stats["paper_trades"] > 0
     a.db.close()
 
-
-def test_24h_rollover_generates_report_and_resets_wallet(tmp_path):
+def test_24h_rollover_evaluation_window_bankroll_continuous(tmp_path):
+    """V2 semantics: a 24h rollover closes the evaluation window and
+    writes a report, but the bankroll is CONTINUOUS - the wallet is NOT
+    reset to $100 and open positions are NOT force-closed."""
     env = _env(tmp_path / "t.db", tmp_path / "logs")
     a = Agent(cfgmod.Config(env=env))
     a.run_cycle()
     ep1 = a.db.active_episode()
     assert ep1 is not None
 
-    # open a real position so mark-to-market close is exercised
+    # open a real position: it must SURVIVE the window rollover
     markets = a.source.fetch_markets()
     m = markets[0]
     sig = Signal(market_id=m.market_id, market_probability=m.mid_price,
@@ -147,9 +140,11 @@ def test_24h_rollover_generates_report_and_resets_wallet(tmp_path):
                  edge=0.3, confidence=0.9, decision="BUY_YES",
                  reason="episode test")
     a.engine.open_position(m, sig, 5.0)
+    balance_after_buy = round(a.wallet.balance, 2)
+    assert balance_after_buy < 100.0          # money actually spent
 
-    # age the episode past 24h (frozen clock, directly in the DB), then run
-    # the next cycle with KILL_SWITCH so the ONLY money change is rollover
+    # age the episode past 24h (frozen clock, directly in the DB), then
+    # run the next cycle with KILL_SWITCH so no NEW trades can open
     a.db.conn.execute("UPDATE episodes SET started_ts = started_ts - ?",
                       (25 * 3600,))
     a.db.conn.commit()
@@ -169,25 +164,34 @@ def test_24h_rollover_generates_report_and_resets_wallet(tmp_path):
     # every required report field present
     for key in ("starting_balance", "ending_balance", "return_pct",
                 "trades", "win_rate", "max_drawdown_pct", "avg_edge",
-                "avg_confidence", "final_score"):
+                "avg_confidence", "final_score", "scans", "markets",
+                "candidates", "ai_analyzed", "valid_signals",
+                "rejected_signals", "wins", "losses", "realized_pnl",
+                "unrealized_pnl", "total_fees", "total_slippage",
+                "risk_violations", "data_failures",
+                "strategy_inactive_cycles"):
         assert key in report, f"missing report field: {key}"
     assert report["starting_balance"] == 100.0
     assert 0.0 <= report["final_score"] <= 100.0
     assert isinstance(report["top_20_rejections"], list)
     assert report["no_forced_trades"] is True
 
-    # the open positions were marked-to-market closed into episode 1
+    # NO forced close: positions are continuous and stay open
     closes = a2.db.query(
         "SELECT * FROM trades WHERE action='EPISODE_CLOSE'")
-    assert len(closes) >= 1
-    assert all(c["pnl"] is not None for c in closes)
+    assert len(closes) == 0
+    open_now = a2.db.open_positions()
+    assert any(r["market_id"] == m.market_id for r in open_now)
 
-    # fresh $100 for the new episode (nothing else could spend it)
+    # NO wallet reset: the bankroll is untouched by the rollover. With
+    # KILL_SWITCH the only spend was the position opened in episode 1.
     assert a2.wallet.starting_balance == 100.0
-    assert a2.wallet.balance == 100.0
+    assert a2.wallet.balance == pytest.approx(balance_after_buy, abs=0.02)
     assert stats2["episode_id"] == ep2["id"]
+    # the new window starts from the CURRENT equity, not a fresh $100
+    assert ep2["starting_balance"] == pytest.approx(
+        balance_after_buy, abs=0.6)
     a2.db.close()
-
 
 def test_rejections_logged_with_exact_reasons(tmp_path):
     # MIN_EDGE high -> signals get rejected with an exact reason
@@ -208,7 +212,6 @@ def test_rejections_logged_with_exact_reasons(tmp_path):
     edges = [t["edge"] for t in top]
     assert edges == sorted(edges, reverse=True)  # best first
     a.db.close()
-
 
 def test_calibration_brier_from_resolved_trades(tmp_path):
     from database.db import Database
@@ -234,12 +237,11 @@ def test_calibration_brier_from_resolved_trades(tmp_path):
         db.save_trade(Trade(market_id=mid, side="YES", action="RESOLVE",
                             quantity=10, price=1.0 if won else 0.0, fees=0.0,
                             pnl=5.0 if won else -5.0, ts=now - 400))
-    report = mgr.build_report(ep, 100.0, now)
+    report = mgr.build_report(ep, now)
     # brier = mean((0.8-1)^2, (0.2-0)^2, (0.6-1)^2) = (0.04+0.04+0.16)/3
     assert report["brier"] == pytest.approx(0.08, abs=1e-6)
     assert report["calibration_samples"] == 3
     db.close()
-
 
 def test_safety_limits_unchanged_with_episodes(tmp_path):
     a = Agent(cfgmod.Config(env=_env(tmp_path / "t.db", tmp_path / "logs")))
