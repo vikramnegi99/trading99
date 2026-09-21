@@ -4,7 +4,6 @@ from typing import Optional, List, Dict, Any
 import json
 import time
 
-
 def _now() -> float:
     return time.time()
 
@@ -96,8 +95,8 @@ class Signal:
     decision: str                    # BUY_YES | BUY_NO | HOLD
     reason: str = ""
     risk_flags: List[str] = field(default_factory=list)
+    strategy: str = ""                # profile that produced this signal
     created_ts: float = field(default_factory=_now)
-
 
 @dataclass
 class PaperOrder:
@@ -112,7 +111,6 @@ class PaperOrder:
     notional: float
     status: str = "filled"            # filled | rejected
     ts: float = field(default_factory=_now)
-
 
 @dataclass
 class PaperPosition:
@@ -133,7 +131,6 @@ class PaperPosition:
             return 0.0
         return (self.mark_price - self.avg_entry_price) * self.quantity
 
-
 @dataclass
 class Trade:
     market_id: str
@@ -144,7 +141,6 @@ class Trade:
     fees: float
     pnl: Optional[float] = None       # set on closes/resolutions
     ts: float = field(default_factory=_now)
-
 
 @dataclass
 class PaperWallet:
@@ -160,7 +156,6 @@ class PaperWallet:
         if self.starting_balance <= 0:
             return 0.0
         return self.total_pnl / self.starting_balance
-
 
 def parse_signal(d: dict) -> Signal:
     """Validate and convert an (untrusted) analysis dict into a Signal.

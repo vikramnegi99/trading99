@@ -5,6 +5,7 @@ has no code path to any exchange. Orders are filled against the market's
 current price plus simulated slippage and fees.
 """
 import logging
+import math
 import time
 from typing import Dict, Optional, Tuple
 
@@ -15,6 +16,13 @@ from models.entities import (MarketSnapshot, PaperOrder, PaperPosition,
 from utils.logger import log_event
 
 logger = logging.getLogger("execution.engine")
+
+
+class UnsafeExecution(ValueError):
+    """An impossible portfolio value entered the execution path (negative
+    quantity, out-of-range price/size, non-finite numbers). The runner
+    treats this as a SAFETY_FAILURE dead-hand event: trading stops.
+    """
 
 
 class PaperTradingEngine:
@@ -48,11 +56,30 @@ class PaperTradingEngine:
             else 1 - (market.mid_price or 0.5)
         base_price = min(0.99, max(0.01, base_price))
 
+        # ---- impossible-value guards (SAFETY_DEAD in the runner) ----
+        if not all(isinstance(x, float) and math.isfinite(x) for x in
+                   (size_dollars, base_price)):
+            raise UnsafeExecution(
+                f"non-finite execution values: size={size_dollars!r} "
+                f"price={base_price!r}")
+        if size_dollars <= 0:
+            raise UnsafeExecution(f"non-positive order size: {size_dollars}")
+        if not (0.0 < base_price < 1.0):
+            raise UnsafeExecution(f"invalid probability price: {base_price}")
+        if sig.decision not in ("BUY_YES", "BUY_NO"):
+            raise UnsafeExecution(f"invalid decision: {sig.decision!r}")
+        if not (0.0 <= sig.market_probability <= 1.0) or \
+                not (0.0 <= sig.estimated_probability <= 1.0):
+            raise UnsafeExecution("signal probabilities out of [0,1]")
+
         fill, slip = self._fill_price(base_price, "BUY")
         quantity = size_dollars / fill
         notional = quantity * fill
         fees = self._fees(notional)
         total_cost = notional + fees
+
+        if quantity <= 0 or not math.isfinite(quantity):
+            raise UnsafeExecution(f"invalid computed quantity: {quantity}")
 
         if total_cost > self.wallet.balance:
             logger.info("insufficient balance for %s (%.2f > %.2f)",

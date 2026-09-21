@@ -124,6 +124,60 @@ CREATE TABLE IF NOT EXISTS rejections (
     reasons TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rejections_ep ON rejections(episode_id, ts);
+
+CREATE TABLE IF NOT EXISTS lifecycle (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    state TEXT NOT NULL DEFAULT 'RUNNING',
+    reason TEXT,
+    since_ts REAL NOT NULL,
+    details TEXT,
+    death_reason TEXT,
+    death_release_version TEXT
+);
+
+CREATE TABLE IF NOT EXISTS lifecycle_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    from_state TEXT,
+    to_state TEXT NOT NULL,
+    reason TEXT,
+    details TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_lifecycle_events_ts ON lifecycle_events(ts);
+
+CREATE TABLE IF NOT EXISTS provider_health (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    provider TEXT NOT NULL,
+    requests INTEGER NOT NULL DEFAULT 0,
+    errors INTEGER NOT NULL DEFAULT 0,
+    latency_ms REAL,
+    markets_returned INTEGER NOT NULL DEFAULT 0,
+    valid_markets INTEGER NOT NULL DEFAULT 0,
+    history_attempts INTEGER NOT NULL DEFAULT 0,
+    history_success INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS score_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    scope TEXT NOT NULL,
+    ref TEXT,
+    score REAL NOT NULL,
+    breakdown TEXT
+);
+
+CREATE TABLE IF NOT EXISTS canary_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    passed INTEGER NOT NULL,
+    details TEXT
+);
+
+CREATE TABLE IF NOT EXISTS system_health (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -297,6 +351,67 @@ class Database:
             "ORDER BY COALESCE(edge, -1) DESC, ts DESC LIMIT ?",
             (episode_id, int(limit))).fetchall()
 
+    # -------------------------------------------------- health / scores
+    def save_provider_health(self, provider: str, requests: int,
+                              errors: int, latency_ms: float,
+                              markets_returned: int, valid_markets: int,
+                              history_attempts: int, history_success: int):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO provider_health(ts, provider, requests, "
+                "errors, latency_ms, markets_returned, valid_markets, "
+                "history_attempts, history_success) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                (time.time(), provider, requests, errors, latency_ms,
+                 markets_returned, valid_markets, history_attempts,
+                 history_success))
+            self.conn.commit()
+
+    def latest_provider_health(self):
+        return self.conn.execute(
+            "SELECT * FROM provider_health ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    def save_score(self, scope: str, ref, score: float, breakdown: dict):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO score_history(ts, scope, ref, score, "
+                "breakdown) VALUES(?,?,?,?,?)",
+                (time.time(), scope, str(ref) if ref is not None else None,
+                 score, json.dumps(breakdown)))
+            self.conn.commit()
+
+    def save_canary(self, passed: bool, details: dict):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO canary_results(ts, passed, details) "
+                "VALUES(?,?,?)",
+                (time.time(), 1 if passed else 0, json.dumps(details)))
+            self.conn.commit()
+
+    def latest_canary(self):
+        return self.conn.execute(
+            "SELECT * FROM canary_results ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    def set_sys(self, key: str, value):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO system_health(key, value) VALUES(?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, json.dumps(value)))
+            self.conn.commit()
+
+    def get_sys(self, key: str, default=None):
+        row = self.conn.execute(
+            "SELECT value FROM system_health WHERE key=?", (key,)).fetchone()
+        if not row:
+            return default
+        try:
+            return json.loads(row["value"])
+        except (TypeError, ValueError):
+            return default
+
     # ------------------------------------------------------------ queries
     def query(self, sql: str, params: tuple = ()) -> List[sqlite3.Row]:
         return self.conn.execute(sql, params).fetchall()
@@ -348,7 +463,24 @@ class Database:
                 "(SELECT COALESCE(MAX(id), 0) - ? FROM ai_decisions)", (ai_decisions,))
             self.conn.execute(
                 "DELETE FROM rejections WHERE id <= "
-                "(SELECT COALESCE(MAX(id), 0) - ? FROM rejections)", (5000,))
+                "(SELECT COALESCE(MAX(id), 0) - ? FROM rejections)",
+                (5000,))
+            self.conn.execute(
+                "DELETE FROM provider_health WHERE id <= "
+                "(SELECT COALESCE(MAX(id), 0) - ? FROM provider_health)",
+                (2000,))
+            self.conn.execute(
+                "DELETE FROM lifecycle_events WHERE id <= "
+                "(SELECT COALESCE(MAX(id), 0) - ? FROM lifecycle_events)",
+                (5000,))
+            self.conn.execute(
+                "DELETE FROM score_history WHERE id <= "
+                "(SELECT COALESCE(MAX(id), 0) - ? FROM score_history)",
+                (5000,))
+            self.conn.execute(
+                "DELETE FROM canary_results WHERE id <= "
+                "(SELECT COALESCE(MAX(id), 0) - ? FROM canary_results)",
+                (500,))
             self.conn.commit()
 
     def recent(self, table: str, limit: int = 20,

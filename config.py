@@ -25,6 +25,10 @@ class Config:
 
     def __init__(self, env=None):
         env = dict(os.environ) if env is None else dict(env)
+        # Keys explicitly provided by the environment: a strategy profile
+        # may only adjust thresholds that were NOT explicitly configured
+        # (the repo-variable / mobile-configurable path always wins).
+        self._explicit_env = set(env.keys())
 
         if _bool(env.get("REAL_TRADING", "false")):
             # Fail safely: refuse to even start if someone tries real trading.
@@ -53,6 +57,22 @@ class Config:
         self.MIN_DAYS_TO_RESOLUTION = float(env.get("MIN_DAYS_TO_RESOLUTION", "1"))
         self.MAX_DAYS_TO_RESOLUTION = float(env.get("MAX_DAYS_TO_RESOLUTION", "180"))
         self.MAX_AI_CALLS_PER_CYCLE = int(env.get("MAX_AI_CALLS_PER_CYCLE", "25"))
+
+        # ----------------------------------------------------- lifecycle
+        # ACTIVE strategy profile (see strategy/profiles.py): conservative
+        # | balanced | experimental. Thresholds only - risk caps below are
+        # NEVER relaxed by a profile.
+        self.STRATEGY = env.get("STRATEGY", "conservative")
+        self.DATA_FAILURE_LOCK_CYCLES = int(
+            env.get("DATA_FAILURE_LOCK_CYCLES", "12"))
+        self.STRATEGY_INACTIVE_CYCLES = int(
+            env.get("STRATEGY_INACTIVE_CYCLES", "72"))   # ~12h at 10min
+        self.MAINTENANCE_LEASE_DAYS = float(
+            env.get("MAINTENANCE_LEASE_DAYS", "7"))
+        self.REVIEW_DEADLINE_HOURS = float(
+            env.get("REVIEW_DEADLINE_HOURS", "48"))
+        # optional shadow strategy: evaluated + logged, NEVER executed
+        self.SHADOW_STRATEGY = env.get("SHADOW_STRATEGY", "")
 
         # ------------------------------------------------------------- risk
         self.MAX_POSITION_PERCENT = float(env.get("MAX_POSITION_PERCENT", "0.06"))
@@ -84,7 +104,61 @@ class Config:
         self.OPENAI_BASE_URL = env.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
         self.LLM_MODEL = env.get("LLM_MODEL", "gpt-4o-mini")
 
+        self.validate()
+
     # ---------------------------------------------------------------- helpers
+    def validate(self):
+        """Startup configuration validation. One source of truth: every
+        threshold lives here and must be internally consistent."""
+        from strategy.profiles import PROFILES
+        checks = [
+            ("MIN_EDGE", self.MIN_EDGE, 0.0, 1.0),
+            ("MIN_CONFIDENCE", self.MIN_CONFIDENCE, 0.0, 1.0),
+            ("MAX_SPREAD", self.MAX_SPREAD, 0.0, 1.0),
+            ("MAX_POSITION_PERCENT", self.MAX_POSITION_PERCENT, 0.0, 1.0),
+            ("MAX_OPEN_EXPOSURE_PERCENT", self.MAX_OPEN_EXPOSURE_PERCENT,
+             0.0, 1.0),
+            ("MAX_DAILY_LOSS_PERCENT", self.MAX_DAILY_LOSS_PERCENT, 0.0, 1.0),
+            ("MAX_DRAWDOWN_PERCENT", self.MAX_DRAWDOWN_PERCENT, 0.0, 1.0),
+            ("KELLY_FRACTION", self.KELLY_FRACTION, 0.0, 1.0),
+            ("MAINTENANCE_LEASE_DAYS", self.MAINTENANCE_LEASE_DAYS, 0.0, 365.0),
+        ]
+        for name, val, lo, hi in checks:
+            if not (lo < val <= hi):
+                raise ValueError(
+                    f"invalid config: {name}={val} must be in ({lo}, {hi}]")
+        if self.MAX_OPEN_POSITIONS < 1:
+            raise ValueError("invalid config: MAX_OPEN_POSITIONS < 1")
+        if self.STRATEGY not in PROFILES:
+            raise ValueError(
+                f"invalid config: STRATEGY={self.STRATEGY!r} not in "
+                f"{sorted(PROFILES)}")
+        if self.SHADOW_STRATEGY and self.SHADOW_STRATEGY not in PROFILES:
+            raise ValueError(
+                f"invalid config: SHADOW_STRATEGY={self.SHADOW_STRATEGY!r} "
+                f"not in {sorted(PROFILES)}")
+        if self.SHADOW_STRATEGY == self.STRATEGY:
+            raise ValueError(
+                "invalid config: SHADOW_STRATEGY must differ from STRATEGY")
+
+    def with_overrides(self, overrides: dict) -> "Config":
+        """A shallow copy with threshold overrides applied (used by the
+        strategy profiles). Explicitly configured values (env / repo
+        variables) are NEVER overridden - the configured source of
+        truth always wins. The copy re-validates, and hard risk caps can
+        never be relaxed here because profiles never override them."""
+        import copy
+        c = copy.copy(self)
+        c._explicit_env = set(self._explicit_env) | set(overrides.keys())
+        for k, v in overrides.items():
+            if not hasattr(self, k):
+                raise ValueError(f"unknown config override: {k}")
+            if k in self._explicit_env:
+                continue  # explicit configuration wins over the profile
+            setattr(c, k, v)
+        c.validate()
+        return c
+
     def assert_safe(self):
         """Hard runtime guard - call before any execution path."""
         if self.REAL_TRADING:
