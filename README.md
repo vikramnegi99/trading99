@@ -39,6 +39,9 @@ python main.py --once         # one scan cycle + dashboard
 python main.py --status       # performance summary
 python main.py --loop          # run continuously every SCAN_INTERVAL_MINUTES
 python main.py --backtest 60   # 60-step backtest on simulated markets
+python main.py --canary        # isolated full-pipeline proof test
+python main.py --lab           # strategy threshold replay sweep
+python main.py --recover --ack REASON   # recover a DEAD agent (human)
 ```
 
 Output: `dashboard.html` (open in any browser) and state in
@@ -48,8 +51,9 @@ Output: `dashboard.html` (open in any browser) and state in
 
 1. Push this repo to GitHub.
 2. The workflow `.github/workflows/paper-trading.yml` runs every ~10
-   minutes on a schedule, runs one scan cycle, and commits the updated
-   state + `dashboard.html` back to the repo.
+   minutes on a schedule: validates the database, runs the isolated
+   canary, runs one scan cycle, and commits the updated state +
+   `dashboard.html` back to the repo.
 3. On mobile: open the repo in the GitHub app → **Actions** → tap a run
    for logs; open `dashboard.html` for stats; use **Run workflow** for a
    manual run.
@@ -85,13 +89,15 @@ rejected and falls back safely; the agent never trusts unvalidated JSON.
 ## Configuration
 
 All settings live in `config.py` with env-var overrides (see
-`.env.example`). Highlights:
+`.env.example`), validated at startup. Highlights:
 
 | Setting | Default | Meaning |
 |---|---|---|
 | STARTING_BALANCE | 100 | simulated bankroll ($) |
 | SCAN_INTERVAL_MINUTES | 10 | loop interval |
 | MIN_EDGE | 0.05 | min est_prob − mkt_prob to trade (repo variable `MIN_EDGE` overrides, mobile-configurable) |
+| STRATEGY | conservative | active strategy profile: conservative / balanced / experimental (repo variable) |
+| SHADOW_STRATEGY | (unset) | optional shadow strategy, logged but never executed (repo variable) |
 | MIN_CONFIDENCE | 0.60 | min AI confidence |
 | MAX_POSITION_PERCENT | 0.06 | max 6% of bankroll per trade |
 | MAX_OPEN_EXPOSURE_PERCENT | 0.25 | max total open exposure |
@@ -116,18 +122,22 @@ All settings live in `config.py` with env-var overrides (see
 ## Project structure
 
 ```
-agent/       scan cycle + continuous loop + 24h challenge episodes
+agent/       scan cycle + loop + lifecycle (DEAD-HAND) + 24h windows
 ai/          heuristic + optional LLM analyzers, signal validation
 backtest/    replay engine (clearly labelled BACKTEST)
-data/        market sources (Polymarket public API, mock)
+canary/      isolated full-pipeline proof test (never touches the live wallet)
+data/        market sources (Polymarket public API, mock) + health wrapper
 database/    SQLite persistence (wallet, positions, orders, trades,
-             snapshots, AI decisions, equity curve, episodes, rejections)
-dashboard/   mobile-friendly HTML dashboard generator
-execution/   paper trading engine (100% simulated)
+             snapshots, AI decisions, equity curve, episodes, rejections,
+             lifecycle, provider health, scores, canary, system health)
+dashboard/   professional terminal dashboard generator (mobile-first)
+execution/   paper trading engine (100% simulated, impossible-value guards)
+lab/         strategy lab: threshold replay sweep + promotion bookkeeping
 models/      dataclasses: MarketSnapshot, Signal, PaperOrder, ...
 risk/        Kelly sizing + hard risk limits
-strategy/   filtering, features, edge evaluation
-tests/       pytest suite (76 tests, incl. cross-run integration + episodes)
+strategy/   filtering, features, edge evaluation, profiles, RELEASE.json,
+             promotion.json (human approval gate)
+tests/       pytest suite (119 tests: lifecycle, survival, canary, probability matrix)
 .github/     Actions: scheduled runs + CI
 ```
 
@@ -135,13 +145,13 @@ Market resolution is detected by polling each held market by id
 (resolved markets disappear from the active feed; the Gamma API reports
 them with `umaResolutionStatus: "resolved"` and prices pinned to 1/0).
 
-## 24h Challenge Episodes
+## 24h Challenge Episodes (V2: evaluation windows)
 
-On top of the continuous paper wallet, the agent runs self-contained
-**24-hour challenge episodes**: each episode starts with a fresh **$100
-virtual capital**, and at the end of the 24 hours it is closed out
-(open positions are marked-to-market into the report), a full report is
-stored in the `episodes` table and shown on the dashboard.
+On top of the CONTINUOUS paper wallet (one-time $100, never reset), the
+agent rolls **24-hour evaluation windows**: at the end of each 24 hours
+the window is closed out with a full report (the bankroll and open
+positions carry over untouched), stored in the `episodes` table and
+shown on the dashboard.
 
 The episode layer is strictly **observational** - it never loosens the
 trading thresholds and never pressures the agent to trade. An episode
@@ -158,13 +168,59 @@ with zero trades is a valid, unpenalized outcome.
 | Risk discipline | -5 pts per risk-limit violation (cap -15) |
 | Churn penalty | -1 pt per trade above 24 in an episode (cap -10) - punishes overtrading, never NOT trading |
 
-The end-of-episode report contains: starting balance, ending balance,
-return, trades, win rate, max drawdown, average edge, average
-confidence, final score (with full breakdown) and the **top 20 rejected
-opportunities with their exact rejection reason** (e.g.
-`edge_too_small:0.041`), logged at both the signal stage and the risk
-stage. The dashboard shows the latest completed episode plus the live
-one.
+The end-of-episode report contains: starting/ending equity, return,
+realized/unrealized P&L, scans, markets, candidates, AI analyzed, valid
+and rejected signals, trades, wins/losses, win rate, max drawdown,
+average edge, average confidence, total fees, slippage, risk
+violations, data failures, strategy-inactivity cycles, final score
+(with full breakdown) and the **top 20 rejected opportunities with
+their exact rejection reason** (e.g. `edge_too_small:0.041`), logged
+at both the signal stage and the risk stage.
+
+## V2: Survival System (one-time $100, DEAD-HAND, canary)
+
+**Bankroll is CONTINUOUS.** The account starts at $100 exactly once and is
+never reset. 24h "episodes" are evaluation windows only - they record a
+report and a 0-100 score, but the wallet and open positions carry over:
+`$100 -> $103 -> $98 -> $110 -> ...`.
+
+**Lifecycle states** (persistent in SQLite, survives Actions restarts):
+`RUNNING -> DEGRADED` (data issues) `-> LOCKED` (12 consecutive failed
+cycles; auto-unlocks after 3 healthy cycles) - no trading while locked.
+`REVIEW_REQUIRED` (prolonged strategy inactivity, or maintenance lease
+overdue) - trading continues but review is due.
+`DEAD` (terminal: BANKRUPT if equity <= 0, SAFETY_FAILURE on unsafe
+paths/impossible values, MAINTENANCE_EXPIRED after 48h overdue review).
+
+**DEAD cannot auto-resurrect.** Recovery requires: a new human strategy
+release (`strategy/RELEASE.json` with a new version) + explicit
+acknowledgement: `python main.py --recover --ack <REASON>`. The database
+and all trading history are always preserved.
+
+**Maintenance lease.** Bot state commits never renew it. 7 days without a
+human commit touching strategy/AI/risk code -> REVIEW_REQUIRED; +48h
+without a release -> DEAD (MAINTENANCE_EXPIRED).
+
+**Paper engine canary.** Every workflow run executes an ISOLATED full
+pipeline proof (market -> features -> signal -> edge -> risk ->
+execution -> position -> resolution -> P&L) on a throwaway database -
+`python main.py --canary`. The dashboard shows `CANARY: PASS / FAIL`, so
+a broken code path can never silently masquerade as "no opportunities".
+
+**Strategy profiles** (`STRATEGY` repo variable): `conservative`,
+`balanced`, `experimental`. Profiles adjust decision thresholds only -
+hard risk caps always come from config defaults and can never be relaxed
+by a profile. Optional `SHADOW_STRATEGY` repo variable runs a second
+strategy in shadow mode (signals logged, never executed). Promotion to
+ACTIVE requires human approval in `strategy/promotion.json` - the agent
+never deploys a strategy by itself.
+
+**Strategy Lab:** `python main.py --lab` runs a threshold replay sweep
+over the agent's own logged decisions (no claimed counterfactual P&L).
+
+**Provider health, rejection analytics, risk panels, system health and
+a professional mobile-first terminal dashboard** are regenerated from
+the committed SQLite state every cycle.
 
 ## Modes
 
