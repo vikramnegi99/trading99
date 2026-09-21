@@ -1,0 +1,29 @@
+{
+  "_comment": "Strategy promotion pipeline. The agent NEVER promotes or deploys a strategy by itself: every transition to ACTIVE requires a human approval record committed by a human author. Bot commits do not count as approvals.",
+  "strategies": {
+    "conservative": {
+      "state": "ACTIVE",
+      "since": "2026-09-21",
+      "history": [
+        {"date": "2026-09-21", "from": "CANDIDATE", "to": "ACTIVE",
+         "reason": "V2 restructure: baseline profile, thresholds within validated config ranges",
+         "approved_by": "vikramnegi99"}
+      ]
+    },
+    "balanced": {
+      "state": "SHADOW",
+      "since": "2026-09-21",
+      "minimum_shadow_samples": 100,
+      "history": [
+        {"date": "2026-09-21", "from": "CANDIDATE", "to": "SHADOW",
+         "reason": "shadow evaluation - signals logged, never executed",
+         "approved_by": "vikramnegi99"}
+      ]
+    },
+    "experimental": {
+      "state": "CANDIDATE",
+      "since": "2026-09-21",
+      "history": []
+    }
+  }
+}
