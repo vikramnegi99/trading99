@@ -96,6 +96,11 @@ jobs:
 
       - name: Regenerate dashboard
         if: always()
+        env:
+          # keep the dashboard's header/system-health in sync with the
+          # strategy actually used by the scan step
+          STRATEGY: ${{ vars.STRATEGY }}
+          SHADOW_STRATEGY: ${{ vars.SHADOW_STRATEGY }}
         run: |
           python main.py --dashboard
           # GitHub Pages serves index.html at the site root - keep it in
