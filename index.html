@@ -1,84 +1,157 @@
 <!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Paper Trading Dashboard</title>
+<meta http-equiv="refresh" content="300">
+<title>AI Paper Trading Terminal</title>
 <style>
-:root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;
---muted:#8b949e;--green:#3fb950;--red:#f85149;--amber:#d29922;--blue:#58a6ff}
+:root{--bg:#0b0f14;--panel:#11161d;--card:#151c24;--border:#263041;
+--text:#dce3ea;--muted:#7d8a99;--green:#2ecc71;--red:#e74c3c;
+--amber:#f39c12;--blue:#3498db;--purple:#9b59b6}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;background:var(--bg);
-color:var(--text);padding:14px;max-width:760px;margin:0 auto}
-.banner{background:var(--amber);color:#000;text-align:center;font-weight:700;
-padding:8px;border-radius:8px;margin-bottom:12px;font-size:14px}
-h1{font-size:1.3rem;margin-bottom:4px}
-.sub{color:var(--muted);font-size:.8rem;margin-bottom:14px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
-gap:10px;margin-bottom:16px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:10px;
-padding:12px}
-.card .k{color:var(--muted);font-size:.72rem;text-transform:uppercase;
-letter-spacing:.04em}
-.card .v{font-size:1.35rem;font-weight:700;margin-top:4px}
-.pos{color:var(--green)}.neg{color:var(--red)}
-table{width:100%;border-collapse:collapse;font-size:.78rem;margin:8px 0 18px}
-th,td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border);
-white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
-th{color:var(--muted);font-weight:600}
-.tag{display:inline-block;background:var(--border);border-radius:10px;
-padding:1px 8px;font-size:.7rem}
-.hold{color:var(--muted)}
-footer{color:var(--muted);font-size:.72rem;text-align:center;margin-top:10px}
+body{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+background:var(--bg);color:var(--text);padding:0 0 40px;font-size:13px}
+.wrap{max-width:900px;margin:0 auto;padding:12px}
+header{position:sticky;top:0;z-index:5;background:linear-gradient(
+180deg,#0d1420,#0b0f14ee);border-bottom:1px solid var(--border);
+padding:10px 12px;backdrop-filter:blur(6px)}
+.hrow{max-width:900px;margin:0 auto;display:flex;flex-wrap:wrap;gap:8px;
+align-items:center;justify-content:space-between}
+h1{font-size:15px;letter-spacing:.08em}
+.sub{color:var(--muted);font-size:11px}
+.pill{display:inline-block;border-radius:12px;padding:2px 10px;
+font-size:10.5px;font-weight:700;letter-spacing:.05em}
+.p-run{background:#0e2b1a;color:var(--green);border:1px solid #1d5b36}
+.p-deg{background:#2b220e;color:var(--amber);border:1px solid #5b4a1d}
+.p-rev{background:#241b33;color:#b388ff;border:1px solid #4a3a6b}
+.p-lock{background:#33240e;color:#ffce6b;border:1px solid #5b4a1d}
+.p-dead{background:#331111;color:#ff8f8f;border:1px solid #5b1d1d}
+.p-paper{background:var(--panel);color:var(--muted);border:1px solid var(--border)}
+.p-pass{background:#0e2b1a;color:var(--green);border:1px solid #1d5b36}
+.p-fail{background:#331111;color:#ff8f8f;border:1px solid #5b1d1d}
+h2{font-size:12px;letter-spacing:.1em;color:var(--muted);margin:22px 0 8px;
+text-transform:uppercase;border-bottom:1px solid var(--border);padding-bottom:4px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+gap:8px;margin-top:10px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;
+padding:10px}
+.card .k{color:var(--muted);font-size:9.5px;text-transform:uppercase;
+letter-spacing:.06em}
+.card .v{font-size:17px;font-weight:700;margin-top:3px}
+.card .s{color:var(--muted);font-size:10px;margin-top:2px}
+.pos{color:var(--green)}.neg{color:var(--red)}.mut{color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:11.5px;margin:6px 0 4px}
+th,td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--border);
+white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+th{color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase}
+.tag{display:inline-block;background:var(--panel);border:1px solid var(--border);
+border-radius:10px;padding:0 7px;font-size:10px;margin:1px}
+.deadhand{background:#2a1114;border:1px solid #5b1d1d;border-radius:10px;
+padding:14px;margin:12px 0}
+.deadhand h3{color:#ff8f8f;font-size:14px;letter-spacing:.1em;margin-bottom:6px}
+.deadhand p{font-size:12px;color:#f0c8c8;margin:3px 0}
+.banner{background:#3a2c0a;color:#ffd57a;text-align:center;font-weight:700;
+padding:6px;font-size:11px;border-bottom:1px solid #5b4a1d}
+.bar{height:8px;background:var(--panel);border-radius:4px;overflow:hidden;
+border:1px solid var(--border)}
+.bar>i{display:block;height:100%}
+.funnel{display:flex;flex-direction:column;gap:5px;margin:8px 0}
+.fstep{display:grid;grid-template-columns:120px 1fr 70px;gap:8px;
+align-items:center;font-size:11.5px}
+.fstep .fl{color:var(--muted)}
+.kv{display:grid;grid-template-columns:170px 1fr;gap:4px 10px;
+font-size:12px;margin:6px 0}
+.kv .k{color:var(--muted)}
+details{border:1px solid var(--border);border-radius:8px;background:var(--panel);
+margin:8px 0;padding:0}
+details summary{cursor:pointer;padding:9px 12px;font-size:12px;
+letter-spacing:.05em;color:var(--text);list-style:none}
+details summary::-webkit-details-marker{display:none}
+details[open] summary{border-bottom:1px solid var(--border)}
+details .body{padding:10px 12px}
+footer{color:var(--muted);font-size:10.5px;text-align:center;margin-top:26px;
+line-height:1.6}
+.chart{background:var(--card);border:1px solid var(--border);border-radius:8px;
+padding:10px;margin-top:10px}
+.leg{display:flex;gap:14px;color:var(--muted);font-size:10px;margin-top:6px}
+.leg i{display:inline-block;width:10px;height:3px;border-radius:2px;
+margin-right:4px;vertical-align:middle}
+@media(max-width:640px){
+ .hrow h1{font-size:13px}
+ th,td{max-width:130px}
+ .kv{grid-template-columns:140px 1fr}
+}
 </style></head><body>
-<div class="banner">PAPER TRADING ONLY - SIMULATED MONEY - NO REAL ORDERS</div>
-<h1>AI Paper Trading Agent</h1>
-<div class="sub">Mode: PAPER LIVE (real-money execution is disabled in code) -
-Updated 2026-09-21T13:57:20+00:00</div>
-<div class="grid">
-<div class="card"><div class="k">Starting balance</div>
-<div class="v">$100.00</div></div>
-<div class="card"><div class="k">Current balance</div>
-<div class="v">$100.00</div></div>
-<div class="card"><div class="k">Total P&L</div>
-<div class="v pos">+$0.00</div></div>
-<div class="card"><div class="k">Return</div>
-<div class="v pos">+0.00%</div></div>
-<div class="card"><div class="k">Trades</div><div class="v">0</div></div>
-<div class="card"><div class="k">Win rate</div>
-<div class="v">0.0%</div></div>
-<div class="card"><div class="k">Avg trade P&L</div>
-<div class="v">$0.000</div></div>
-<div class="card"><div class="k">Largest win</div>
-<div class="v pos">$0.00</div></div>
-<div class="card"><div class="k">Largest loss</div>
-<div class="v neg">$0.00</div></div>
-<div class="card"><div class="k">Max drawdown</div>
-<div class="v">0.00%</div></div>
-<div class="card"><div class="k">Unrealized</div>
-<div class="v pos">+$0.00</div></div>
-<div class="card"><div class="k">Profit factor</div>
-<div class="v">-</div></div>
+<div class="banner">PAPER TRADING ONLY &mdash; SIMULATED MONEY &mdash;
+REAL-MONEY EXECUTION PERMANENTLY DISABLED IN CODE</div>
+<header><div class="hrow">
+<h1>AI PAPER TRADING TERMINAL</h1>
+<div><span class="pill p-pass">CANARY: PASS (10s ago)</span> <span class="pill p-run">● RUNNING</span></div>
 </div>
+<div class="hrow" style="margin-top:6px">
+<span class="sub">Updated 2026-09-21T15:37:53+00:00 &middot; strategy: conservative
+&middot; <a href="javascript:location.reload()" style="color:var(--blue)">
+reload</a></span>
+<span><span class="pill p-paper">PAPER ONLY</span>
+<span class="pill p-paper">NO REAL ORDERS</span></span>
+</div></header>
+<div class="wrap">
 
-<h2 style="font-size:1rem;margin-bottom:6px">Open positions (0)</h2>
-<table><tr><th>Market</th><th>Side</th><th>Qty</th><th>Entry</th>
-<th>Mark</th><th>P&L</th></tr><tr><td colspan=6>None</td></tr></table>
+<div class="grid"><div class="card"><div class="k">Current equity</div><div class="v ">$100.00</div></div><div class="card"><div class="k">Lifetime P&amp;L</div><div class="v pos">+$0.00</div></div><div class="card"><div class="k">Return</div><div class="v pos">+0.00%</div></div><div class="card"><div class="k">Drawdown</div><div class="v ">0.00%</div></div><div class="card"><div class="k">Open exposure</div><div class="v ">$0.00</div></div><div class="card"><div class="k">Trades</div><div class="v ">0</div></div><div class="card"><div class="k">Win rate</div><div class="v ">0.0%</div></div><div class="card"><div class="k">Current score</div><div class="v ">-</div></div><div class="card"><div class="k">Health</div><div class="v pos">100/100</div></div><div class="card"><div class="k">Unrealized</div><div class="v pos">+$0.00</div></div></div>
+<div class="chart"><svg viewBox="0 0 600 150" role="img" style="width:100%;height:auto" preserveAspectRatio="none"><polygon points="8.0,142.0 8.0,142.0 592.0,142.0 592.0,142.0" fill="#1d3a29" opacity="0.35"/><line x1="8.0" y1="142.0" x2="592.0" y2="142.0" stroke="#7d8a99" stroke-width="1" stroke-dasharray="4 4" opacity="0.7"/><polyline points="8.0,142.0 592.0,142.0" fill="none" stroke="#2ecc71" stroke-width="1.8"/><circle cx="592.0" cy="142.0" r="3" fill="#2ecc71"/></svg><div class="leg"><span><i style="background:#2ecc71"></i>equity (now $100.00)</span><span><i style="background:#7d8a99"></i>start $100.00</span><span><i style="background:#3a4a61"></i>episode boundary</span><span>peak $100.00</span></div></div>
 
-<h2 style="font-size:1rem;margin-bottom:6px">Recent AI signals</h2>
+<h2>24h Challenge Window</h2>
+<div class="grid"><div class="card"><div class="k">Window remaining</div><div class="v ">22h 19m</div></div><div class="card"><div class="k">Starting equity</div><div class="v ">$100.00</div></div><div class="card"><div class="k">Current equity</div><div class="v ">$100.00</div></div><div class="card"><div class="k">Window return</div><div class="v pos">+0.00%</div></div><div class="card"><div class="k">Trades (entries)</div><div class="v ">0</div></div><div class="card"><div class="k">Latest episode score</div><div class="v ">-</div></div><div class="card"><div class="k">Profitable-window streak</div><div class="v ">0</div></div></div><div class='sub'>A 24h window is an EVALUATION ONLY: the $100 bankroll is one-time and never resets.</div>
+
+<h2>Signal Funnel (why is / isn't the agent trading)</h2>
+<div class="funnel"><div class="fstep"><span class="fl">Markets scanned</span><span class="bar"><i style="width:100%;background:#3498db"></i></span><span><b>10000</b> <span class="mut"></span></span></div><div class="fstep"><span class="fl">Candidates</span><span class="bar"><i style="width:58%;background:#5dade2"></i></span><span><b>5795</b> <span class="mut">58% conv.</span></span></div><div class="fstep"><span class="fl">AI analyzed</span><span class="bar"><i style="width:2%;background:#85c1e9"></i></span><span><b>250</b> <span class="mut">4% conv.</span></span></div><div class="fstep"><span class="fl">Valid signals</span><span class="bar"><i style="width:0%;background:#f39c12"></i></span><span><b>0</b> <span class="mut">0% conv.</span></span></div><div class="fstep"><span class="fl">Risk approved</span><span class="bar"><i style="width:0%;background:#d4ac0d"></i></span><span><b>0</b> <span class="mut"></span></span></div><div class="fstep"><span class="fl">Paper trades</span><span class="bar"><i style="width:0%;background:#2ecc71"></i></span><span><b>0</b> <span class="mut"></span></span></div></div><div class="sub">Aggregated over the last 10 scans. "Valid signals" passed the edge test; the remainder were rejected with exact reasons (see rejection analytics).</div>
+
+<details open><summary>AI Signals (last 20)</summary><div class="body">
 <table><tr><th>Market</th><th>Mkt p</th><th>Est p</th><th>Edge</th>
-<th>Conf</th><th>Decision</th></tr><tr><td>898414</td><td>0.0005</td><td>0.05</td><td>0.0495</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>601822</td><td>0.0005</td><td>0.05</td><td>0.0495</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>601823</td><td>0.0005</td><td>0.05</td><td>0.0495</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>601824</td><td>0.0005</td><td>0.05</td><td>0.0495</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>898425</td><td>0.0005</td><td>0.05</td><td>0.0495</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>1126504</td><td>0.048</td><td>0.05</td><td>0.002</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>601826</td><td>0.6015</td><td>0.5966</td><td>-0.0049</td><td>0.95</td><td class='hold'>HOLD</td></tr><tr><td>601819</td><td>0.395</td><td>0.399</td><td>0.004</td><td>0.95</td><td class='hold'>HOLD</td></tr><tr><td>1472548</td><td>0.029</td><td>0.05</td><td>0.021</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>666861</td><td>0.055</td><td>0.055</td><td>0.0</td><td>0.95</td><td class='hold'>HOLD</td></tr><tr><td>2176270</td><td>0.195</td><td>0.195</td><td>0.0</td><td>0.95</td><td class='hold'>HOLD</td></tr><tr><td>559651</td><td>0.0385</td><td>0.05</td><td>0.0115</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>601825</td><td>0.0095</td><td>0.05</td><td>0.0405</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>601818</td><td>0.0005</td><td>0.05</td><td>0.0495</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>2155000</td><td>0.0265</td><td>0.05</td><td>0.0235</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>560317</td><td>0.045</td><td>0.05</td><td>0.005</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>1163699</td><td>0.0715</td><td>0.0708</td><td>-0.0007</td><td>0.95</td><td class='hold'>HOLD</td></tr><tr><td>1105752</td><td>0.0015</td><td>0.05</td><td>0.0485</td><td>0.55</td><td class='hold'>HOLD</td></tr><tr><td>663583</td><td>0.065</td><td>0.065</td><td>0.0</td><td>0.95</td><td class='hold'>HOLD</td></tr><tr><td>1105754</td><td>0.0005</td><td>0.05</td><td>0.0495</td><td>0.55</td><td class='hold'>HOLD</td></tr></table>
+<th>Conf</th><th>Decision</th><th>Flags</th><th>Strategy</th></tr>
+<tr><td title='heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000'>898414<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000</div></td><td>0.0005</td><td>0.05</td><td class='pos'>0.0495</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000'>601822<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000</div></td><td>0.0005</td><td>0.05</td><td class='pos'>0.0495</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000'>601823<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000</div></td><td>0.0005</td><td>0.05</td><td class='pos'>0.0495</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000'>601824<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000</div></td><td>0.0005</td><td>0.05</td><td class='pos'>0.0495</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000'>898425<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000</div></td><td>0.0005</td><td>0.05</td><td class='pos'>0.0495</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.048 mean_rev=-0.000 momentum=+0.000 vol=0.003'>1126504<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.048 mean_rev=-0.000 momentum=+0.000 vol=0.003</div></td><td>0.0475</td><td>0.05</td><td class='pos'>0.0025</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.610 mean_rev=-0.007 momentum=+0.001 vol=0.008'>601826<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.610 mean_rev=-0.007 momentum=+0.001 vol=0.008</div></td><td>0.61</td><td>0.6031</td><td class='neg'>-0.0069</td><td>0.95</td><td class='mut'>HOLD</td><td></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.385 mean_rev=+0.008 momentum=-0.001 vol=0.007'>601819<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.385 mean_rev=+0.008 momentum=-0.001 vol=0.007</div></td><td>0.385</td><td>0.392</td><td class='pos'>0.007</td><td>0.95</td><td class='mut'>HOLD</td><td></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.029 mean_rev=+0.000 momentum=-0.000 vol=0.001'>1472548<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.029 mean_rev=+0.000 momentum=-0.000 vol=0.001</div></td><td>0.029</td><td>0.05</td><td class='pos'>0.021</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.055 mean_rev=+0.000 momentum=+0.000 vol=0.000'>666861<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.055 mean_rev=+0.000 momentum=+0.000 vol=0.000</div></td><td>0.055</td><td>0.055</td><td class='pos'>0.0</td><td>0.95</td><td class='mut'>HOLD</td><td></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.195 mean_rev=-0.000 momentum=+0.000 vol=0.000'>2176270<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.195 mean_rev=-0.000 momentum=+0.000 vol=0.000</div></td><td>0.195</td><td>0.195</td><td class='pos'>0.0</td><td>0.95</td><td class='mut'>HOLD</td><td></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.038 mean_rev=-0.000 momentum=+0.000 vol=0.000'>559651<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.038 mean_rev=-0.000 momentum=+0.000 vol=0.000</div></td><td>0.0385</td><td>0.05</td><td class='pos'>0.0115</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.009 mean_rev=-0.001 momentum=+0.000 vol=0.001'>601825<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.009 mean_rev=-0.001 momentum=+0.000 vol=0.001</div></td><td>0.0095</td><td>0.05</td><td class='pos'>0.0405</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000'>601818<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000</div></td><td>0.0005</td><td>0.05</td><td class='pos'>0.0495</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.026 mean_rev=+0.000 momentum=+0.000 vol=0.000'>2155000<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.026 mean_rev=+0.000 momentum=+0.000 vol=0.000</div></td><td>0.0265</td><td>0.05</td><td class='pos'>0.0235</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.037 mean_rev=+0.003 momentum=-0.000 vol=0.004'>560317<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.037 mean_rev=+0.003 momentum=-0.000 vol=0.004</div></td><td>0.0375</td><td>0.05</td><td class='pos'>0.0125</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.060 mean_rev=+0.005 momentum=-0.000 vol=0.005'>1163699<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.060 mean_rev=+0.005 momentum=-0.000 vol=0.005</div></td><td>0.06</td><td>0.0647</td><td class='pos'>0.0047</td><td>0.95</td><td class='mut'>HOLD</td><td></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.002 mean_rev=-0.000 momentum=+0.000 vol=0.000'>1105752<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.002 mean_rev=-0.000 momentum=+0.000 vol=0.000</div></td><td>0.0015</td><td>0.05</td><td class='pos'>0.0485</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.065 mean_rev=-0.000 momentum=+0.000 vol=0.000'>663583<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.065 mean_rev=-0.000 momentum=+0.000 vol=0.000</div></td><td>0.065</td><td>0.065</td><td class='pos'>0.0</td><td>0.95</td><td class='mut'>HOLD</td><td></td><td class='mut' style='font-size:10px'>balanced</td></tr><tr><td title='heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000'>1105754<div class='mut' style='font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis'>heuristic: p=0.001 mean_rev=-0.000 momentum=+0.000 vol=0.000</div></td><td>0.0005</td><td>0.05</td><td class='pos'>0.0495</td><td>0.55</td><td class='mut'>HOLD</td><td><span class=tag>clamped_estimate</span></td><td class='mut' style='font-size:10px'>balanced</td></tr></table></div></details>
 
-<h2 style="font-size:1rem;margin-bottom:6px">Recent trades</h2>
+<details><summary>Rejection Analytics (categorized, with %)</summary>
+<div class="body"><div class="funnel"><div class="fstep"><span class="fl">AI HOLD</span><span class="bar"><i style="width:100%;background:#e74c3c"></i></span><span><b>650</b> <span class="mut">100.0%</span></span></div></div></div></details>
+
+<details><summary>Open Positions (0)</summary>
+<div class="body"><table><tr><th>Market</th><th>Side</th><th>Qty</th>
+<th>Entry</th><th>Mark</th><th>P&L</th></tr><tr><td colspan=6>None</td></tr></table></div></details>
+
+<details><summary>Recent Trades (last 20)</summary><div class="body">
 <table><tr><th>Time</th><th>Market</th><th>Action</th><th>Qty</th>
-<th>Price</th><th>P&L</th></tr><tr><td colspan=6>None</td></tr></table>
+<th>Price</th><th>P&L</th></tr><tr><td colspan=6>None</td></tr></table></div></details>
 
-<h2 style="font-size:1rem;margin-bottom:6px">Last scans</h2>
+<details><summary>Risk Panel</summary><div class="body">
+<div class="kv"><span class="k">Daily loss used</span><span><span class="bar"><i style="width:0%;background:#e74c3c"></i></span> <span class="mut">0.0% of 10% limit</span></span><span class="k">Drawdown used</span><span><span class="bar"><i style="width:0%;background:#f39c12"></i></span> <span class="mut">0.00% of 30% limit</span></span><span class="k">Exposure used</span><span><span class="bar"><i style="width:0%;background:#3498db"></i></span> <span class="mut">0.0% of 25% limit</span></span><span class="k">Open positions</span><span><span class="bar"><i style="width:0%;background:#9b59b6"></i></span> <span class="mut">0 of 15</span></span><span class="k">Max position</span><span> <span class="mut">6% of bankroll per trade</span></span><span class="k">Kill switch</span><span> <span class="mut">inactive</span></span></div></div></details>
+
+<details><summary>System Health</summary><div class="body">
+<div class="kv"><span class="k">Latest successful scan</span><span>21 Sep 15:37</span><span class="k">Scan age</span><span>0s ago</span><span class="k">Data provider</span><span>polymarket - 1 req, 0 errors, 2822.7ms avg</span><span class="k">Markets / valid</span><span>1000 / 1000</span><span class="k">Price-history success</span><span>25/25</span><span class="k">Last successful AI analysis</span><span>0s ago</span><span class="k">Database</span><span>SQLite quick_check: ok</span><span class="k">Last human strategy release</span><span>2.0.0 (7m ago)</span><span class="k">Maintenance lease remaining</span><span>7.0 days</span><span class="k">Software / strategy</span><span>v2.0.0 / conservative</span><span class="k">Lifecycle</span><span>RUNNING (nominal)</span></div></div></details>
+
+<details><summary>Strategy Performance</summary><div class="body">
+<table><tr><th>Strategy</th><th>State</th><th>Since</th></tr>
+<tr><td>conservative</td><td>ACTIVE</td><td>2026-09-21</td></tr><tr><td>balanced</td><td>SHADOW</td><td>2026-09-21</td></tr><tr><td>experimental</td><td>CANDIDATE</td><td>2026-09-21</td></tr><tr><td colspan=3 class='mut'>Active: conservative &middot; promotion to ACTIVE always needs human approval (strategy/promotion.json)</td></tr></table></div></details>
+
+<details><summary>Episode History</summary><div class="body">
+<table><tr><th>Ep</th><th>Period</th><th>Equity</th><th>Return</th>
+<th>Trades</th><th>Win rate</th><th>Max DD</th><th>Score</th></tr>
+<tr><td>#4 live</td><td>21 Sep 13:57 &rarr; now</td><td>$100.00 &rarr; $100.00</td><td class='pos'>+0.00%</td><td colspan=4 class='mut'>in progress</td></tr><tr><td>#3</td><td>20 Sep 07:02 &rarr; 21 Sep 13:57</td><td>$100.00 &rarr; $100.00</td><td class='pos'>+0.00%</td><td>0</td><td>0.0%</td><td>0.00%</td><td><b>50.0</b></td></tr><tr><td>#2</td><td>19 Sep 06:02 &rarr; 20 Sep 07:02</td><td>$100.00 &rarr; $100.00</td><td class='pos'>+0.00%</td><td>0</td><td>0.0%</td><td>0.00%</td><td><b>50.0</b></td></tr><tr><td>#1</td><td>18 Sep 04:17 &rarr; 19 Sep 06:02</td><td>$100.00 &rarr; $100.00</td><td class='pos'>+0.00%</td><td>0</td><td>0.0%</td><td>0.00%</td><td><b>50.0</b></td></tr></table></div></details>
+
+<details><summary>Lifecycle Events (dead-hand audit trail)</summary>
+<div class="body"><table><tr><th>When</th><th>Transition</th>
+<th>Reason</th></tr><tr><td colspan=3>No transitions yet</td></tr></table></div></details>
+
+<details><summary>Achievements (informational only)</summary>
+<div class="body"><p><span class='mut'>none yet</span></p>
+<p class="sub">Badges never affect risk limits - they are gamified
+feedback only.</p></div></details>
+
+<h2>Last Scans</h2>
 <table><tr><th>Markets</th><th>Candidates</th><th>Analyzed</th>
-<th>Signals</th><th>Trades</th><th>Balance</th></tr><tr><td>1000</td><td>586</td><td>25</td><td>0</td><td>0</td><td>$100.00</td></tr><tr><td>1000</td><td>594</td><td>25</td><td>0</td><td>0</td><td>$100.00</td></tr><tr><td>1000</td><td>584</td><td>25</td><td>0</td><td>0</td><td>$100.00</td></tr><tr><td>1000</td><td>575</td><td>25</td><td>0</td><td>0</td><td>$100.00</td></tr><tr><td>1000</td><td>567</td><td>25</td><td>0</td><td>0</td><td>$100.00</td></tr><tr><td>1000</td><td>570</td><td>25</td><td>0</td><td>0</td><td>$100.00</td></tr><tr><td>1000</td><td>566</td><td>25</td><td>0</td><td>0</td><td>$100.00</td></tr><tr><td>1000</td><td>580</td><td>25</td><td>0</td><td>0</td><td>$100.00</td></tr><tr><td>1000</td><td>583</td><td>25</td><td>0</td><td>0</td><td>$100.00</td></tr><tr><td>1000</td><td>577</td><td>25</td><td>0</td><td>0</td><td>$100.00</td></tr></table>
+<th>Signals</th><th>Trades</th><th>Balance</th><th>State</th></tr>
+<tr><td>1000</td><td>590</td><td>25</td><td>0</td><td>0</td><td>$100.00</td><td class='mut'></td></tr><tr><td>1000</td><td>586</td><td>25</td><td>0</td><td>0</td><td>$100.00</td><td class='mut'></td></tr><tr><td>1000</td><td>594</td><td>25</td><td>0</td><td>0</td><td>$100.00</td><td class='mut'></td></tr><tr><td>1000</td><td>584</td><td>25</td><td>0</td><td>0</td><td>$100.00</td><td class='mut'></td></tr><tr><td>1000</td><td>575</td><td>25</td><td>0</td><td>0</td><td>$100.00</td><td class='mut'></td></tr><tr><td>1000</td><td>567</td><td>25</td><td>0</td><td>0</td><td>$100.00</td><td class='mut'></td></tr><tr><td>1000</td><td>570</td><td>25</td><td>0</td><td>0</td><td>$100.00</td><td class='mut'></td></tr><tr><td>1000</td><td>566</td><td>25</td><td>0</td><td>0</td><td>$100.00</td><td class='mut'></td></tr><tr><td>1000</td><td>580</td><td>25</td><td>0</td><td>0</td><td>$100.00</td><td class='mut'></td></tr><tr><td>1000</td><td>583</td><td>25</td><td>0</td><td>0</td><td>$100.00</td><td class='mut'></td></tr></table>
 
-<h2 style="font-size:1rem;margin-bottom:6px">Episode (24h challenge)</h2>
-<table><tr><th>Episode</th><th>Period</th><th>Balance</th><th>Return</th><th>Trades</th><th>Win rate</th><th>Max DD</th><th>Avg edge</th><th>Avg conf</th><th>Score</th></tr><tr><td>#3 done</td><td>20 Sep 07:02 - 21 Sep 13:57</td><td>$100.00 &rarr; $100.00</td><td>+0.00%</td><td>0</td><td>0.0%</td><td>0.00%</td><td>0.0219</td><td>0.71</td><td><b>50.0</b></td></tr><tr><td>#4 live</td><td>21 Sep 13:57 - now</td><td>$100.00 &rarr; $100.00</td><td>+0.00%</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr></table><div class='sub' style='margin-top:6px'>Top rejected opportunities (best first, exact reason):</div><table><tr><th>Market</th><th>Edge</th><th>Conf</th><th>Rejection reason</th></tr><tr><td>601822</td><td>0.0495</td><td>0.55</td><td>ai_hold</td></tr><tr><td>601823</td><td>0.0495</td><td>0.55</td><td>ai_hold</td></tr><tr><td>601824</td><td>0.0495</td><td>0.55</td><td>ai_hold</td></tr><tr><td>898425</td><td>0.0495</td><td>0.55</td><td>ai_hold</td></tr><tr><td>601818</td><td>0.0495</td><td>0.55</td><td>ai_hold</td></tr></table>
-
-<footer>Simulation - slippage/fees applied. Not investment advice.
-No claim of profitability without sufficient paper/backtest evidence.</footer>
-</body></html>
+<footer>Simulation &mdash; slippage/fees applied. Not investment advice.
+No claim of profitability without statistically meaningful
+paper/backtest evidence. Every number on this page comes from the
+committed SQLite state (no fake data).</footer>
+</div></body></html>
