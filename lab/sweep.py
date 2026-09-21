@@ -51,7 +51,7 @@ def replay_sweep(db: Database,
                     sum(abs(d.get("edge", 0) or 0) for d in passed) / n, 4)
                 if n else 0.0,
                 "avg_confidence": round(
-                    sum(d.get("confidence", 0) or 0) for d in passed) / n, 4)
+                    sum(d.get("confidence", 0) or 0 for d in passed) / n, 4)
                 if n else 0.0,
             })
     return results
