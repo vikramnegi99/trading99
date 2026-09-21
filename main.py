@@ -8,6 +8,9 @@ USAGE
   python main.py --dashboard       regenerate dashboard.html only
   python main.py --backtest [N]    run N-step backtest on simulated data
   python main.py --status          print wallet + position summary
+  python main.py --canary          run the isolated paper-engine canary test
+  python main.py --lab             run the strategy lab threshold sweep
+  python main.py --recover --ack R  explicitly recover a DEAD agent
 
 PAPER TRADING ONLY. Real-money execution is disabled at the code level:
 there is no wallet connection and no order-routing code path anywhere.
@@ -48,6 +51,14 @@ def main():
                         help="run backtest for N steps")
     parser.add_argument("--status", action="store_true",
                         help="print current status")
+    parser.add_argument("--canary", action="store_true",
+                        help="run the isolated paper-engine canary test")
+    parser.add_argument("--lab", action="store_true",
+                        help="run the strategy lab threshold sweep")
+    parser.add_argument("--recover", action="store_true",
+                        help="explicitly acknowledge and recover a DEAD agent")
+    parser.add_argument("--ack", metavar="REASON",
+                        help="death reason acknowledgement for --recover")
     parser.add_argument("--source", choices=["polymarket", "mock"],
                         help="override DATA_SOURCE")
     args = parser.parse_args()
@@ -58,6 +69,44 @@ def main():
         cfg.DATA_SOURCE = args.source
     setup_logging(cfg.LOG_DIR)
     log_event(logger, "CONFIG", **cfg.summary())
+
+    if args.canary:
+        from canary.canary import run_canary
+        result = run_canary(live_db_path=cfg.DATABASE_PATH)
+        print(json.dumps(result, indent=2))
+        return 0 if result["passed"] else 1
+
+    if args.lab:
+        from database.db import Database
+        from lab.sweep import run_lab
+        db = Database(cfg.DATABASE_PATH)
+        print(json.dumps(run_lab(db), indent=2))
+        db.close()
+        return 0
+
+    if args.recover:
+        from agent.lifecycle import Lifecycle, load_release
+        from database.db import Database
+        db = Database(cfg.DATABASE_PATH)
+        lc = Lifecycle(cfg, db)
+        release = load_release()
+        if not args.ack:
+            cur = lc.get()
+            print(f"DEAD recovery requires an explicit acknowledgement.")
+            print(f"Death reason: {cur.get('death_reason') or 'n/a'}")
+            print(f"Usage: python main.py --recover --ack <REASON>")
+            db.close()
+            return 2
+        if lc.recover(args.ack, release):
+            print(f"Recovered: state={lc.state} reason={lc.reason}. "
+                  f"All history preserved.")
+            db.close()
+            return 0
+        print(f"Recovery refused: state={lc.state} "
+              f"(needs RECOVERY_REQUIRED, a new strategy release, and "
+              f"the correct death reason acknowledgement).")
+        db.close()
+        return 2
 
     if args.init:
         from database.db import Database
@@ -115,4 +164,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

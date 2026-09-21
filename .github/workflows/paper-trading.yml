@@ -3,7 +3,6 @@ name: Paper Trading Agent
 # Automated scheduled paper-trading runs. PAPER TRADING ONLY - the code
 # has real-money execution permanently disabled. Managed from mobile via
 # the GitHub app: use "Run workflow" for manual runs, or view Actions logs.
-
 on:
   schedule:
     - cron: "*/10 * * * *"   # every ~10 minutes (minimum GitHub allows)
@@ -43,6 +42,32 @@ jobs:
             python main.py --init
           fi
 
+      - name: Backup state DB before any schema migration
+        run: |
+          # One-time backup taken on the runner immediately BEFORE the V2
+          # code first opens the database (new tables are additive and
+          # non-destructive, but the pre-migration state is preserved anyway).
+          if [ -f data/trading.db ] && [ ! -f data/trading.db.bak-pre-v2 ]; then
+            cp data/trading.db data/trading.db.bak-pre-v2
+            echo "created data/trading.db.bak-pre-v2"
+          else
+            echo "backup already exists (or no db yet)"
+          fi
+
+      - name: Validate database integrity
+        run: |
+          python - <<'EOF'
+          import sqlite3
+          conn = sqlite3.connect("data/trading.db")
+          ok = conn.execute("PRAGMA quick_check").fetchone()[0]
+          print(f"db quick_check: {ok}")
+          assert str(ok).lower() == "ok", "database integrity failure - refusing to trade"
+          conn.close()
+          EOF
+
+      - name: Paper engine canary (isolated pipeline proof)
+        run: python main.py --canary
+
       - name: Run one paper-trading scan cycle
         env:
           # Optional: set repo secret OPENAI_API_KEY to enable LLM analysis.
@@ -55,6 +80,13 @@ jobs:
           # Min edge to enter a trade (repo VARIABLE, mobile-configurable).
           # Unset falls back to the code default (0.05).
           MIN_EDGE: ${{ vars.MIN_EDGE }}
+          # Active strategy profile (repo VARIABLE): conservative | balanced |
+          # experimental. Unset = conservative. Profiles only adjust decision
+          # thresholds; hard risk caps always come from config defaults.
+          STRATEGY: ${{ vars.STRATEGY }}
+          # Optional shadow strategy (repo VARIABLE): evaluated and logged,
+          # never executed. Must differ from STRATEGY.
+          SHADOW_STRATEGY: ${{ vars.SHADOW_STRATEGY }}
         run: |
           if [ -n "$OPENAI_API_KEY" ]; then
             export AI_PROVIDER=openai
@@ -80,7 +112,7 @@ jobs:
           # index.html is the GitHub Pages entry point (same as dashboard.html).
           # No [skip ci]: Pages must rebuild when new state is pushed; the
           # Tests workflow skips bot pushes via its own actor guard.
-          git add data/trading.db dashboard.html index.html || true
+          git add data/trading.db data/trading.db.bak-pre-v2 dashboard.html index.html || true
           if git diff --staged --quiet; then
             echo "No state changes to commit."
           else

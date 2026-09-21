@@ -45,6 +45,7 @@ class PolymarketSource(MarketSource):
 
     Docs: https://gamma-api.polymarket.com/markets
     """
+
     BASE = "https://gamma-api.polymarket.com"
     CLOB = "https://clob.polymarket.com"
 
@@ -318,3 +319,84 @@ class FailingSource(MarketSource):
 
     def fetch_markets(self, limit: int = 500) -> List[MarketSnapshot]:
         raise ConnectionError("simulated API outage")
+
+
+class HealthTrackingSource(MarketSource):
+    """Wrapper adding provider health metrics to any MarketSource.
+
+    Counts requests, errors, latency, markets returned/valid and
+    price-history success rate per cycle. The runner snapshots these
+    into the provider_health table after every cycle. Provider modularity
+    is preserved: wrap any future provider the same way. The provider is
+    never switched automatically (e.g. just because zero trades occurred).
+    """
+
+    def __init__(self, inner: MarketSource):
+        self.inner = inner
+        self.reset_metrics()
+
+    def __getattr__(self, name):
+        """Delegate everything else (e.g. MockMarketSource's
+        advance_prices / resolve_all helpers) to the wrapped source."""
+        return getattr(self.inner, name)
+
+    def reset_metrics(self):
+        self.requests = 0
+        self.errors = 0
+        self.latencies = []
+        self.markets_returned = 0
+        self.valid_markets = 0
+        self.history_attempts = 0
+        self.history_success = 0
+
+    def name(self):
+        return self.inner.name()
+
+    def metrics(self) -> dict:
+        avg = sum(self.latencies) / len(self.latencies) if self.latencies else 0.0
+        return {"provider": self.inner.name(),
+                "requests": self.requests,
+                "errors": self.errors,
+                "latency_ms": round(avg * 1000, 1),
+                "markets_returned": self.markets_returned,
+                "valid_markets": self.valid_markets,
+                "history_attempts": self.history_attempts,
+                "history_success": self.history_success}
+
+    def fetch_markets(self, limit: int = 500) -> List[MarketSnapshot]:
+        import time as _t
+        self.requests += 1
+        t0 = _t.time()
+        try:
+            markets = self.inner.fetch_markets(limit)
+        except Exception:
+            self.errors += 1
+            raise
+        finally:
+            self.latencies.append(_t.time() - t0)
+        self.markets_returned += len(markets)
+        self.valid_markets += sum(1 for m in markets if m.is_valid())
+        return markets
+
+    def fetch_market_by_id(self, market_id: str) -> Optional[MarketSnapshot]:
+        import time as _t
+        self.requests += 1
+        t0 = _t.time()
+        try:
+            return self.inner.fetch_market_by_id(market_id)
+        except Exception:
+            self.errors += 1
+            raise
+        finally:
+            self.latencies.append(_t.time() - t0)
+
+    def fetch_price_history(self, market: MarketSnapshot) -> List[float]:
+        self.history_attempts += 1
+        try:
+            hist = self.inner.fetch_price_history(market)
+        except Exception:
+            self.errors += 1
+            raise
+        if hist:
+            self.history_success += 1
+        return hist
